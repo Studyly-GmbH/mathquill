@@ -6,6 +6,7 @@ type HTMLTagName =
   | 'big'
   | 'sup'
   | 'var'
+  | 'wbr'
   | 'br';
 type SVGTagName = 'svg' | 'path';
 

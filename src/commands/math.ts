@@ -448,14 +448,28 @@ class BinaryOperator extends MQSymbol {
     if (treatLikeSymbol) {
       super(
         ctrlSeq,
-        h('span', {}, [html || h.text(ctrlSeq || '')]),
+        ctrlSeq === '+'
+          ? h('span', {}, [
+              h('wbr', {}),
+              h('span', { class: 'mq-binary-operator' }, [
+                html || h.text(ctrlSeq || ''),
+              ]),
+              h('wbr', {}),
+            ])
+          : h('span', {}, [html || h.text(ctrlSeq || '')]),
         undefined,
         mathspeak
       );
     } else {
       super(
         ctrlSeq,
-        h('span', { class: 'mq-binary-operator' }, html ? [html] : []),
+        ctrlSeq === '='
+          ? h('span', {}, [
+              h('wbr', {}),
+              h('span', { class: 'mq-binary-operator' }, html ? [html] : []),
+              h('wbr', {}),
+            ])
+          : h('span', { class: 'mq-binary-operator' }, html ? [html] : []),
         text,
         mathspeak
       );

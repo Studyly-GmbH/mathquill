@@ -1064,9 +1064,10 @@ var PlusMinus = class extends BinaryOperator {
 
   sharedSiblingMethod(_opts?: CursorOptions, dir?: Direction) {
     if (dir === R) return; // ignore if sibling only changed on the right
-    this.domFrag().oneElement().className = isBinaryOperator(this)
-      ? 'mq-binary-operator'
-      : '';
+    this.domFrag().oneElement().className =
+      isBinaryOperator(this) && this.ctrlSeq !== '+'
+        ? 'mq-binary-operator'
+        : '';
 
     return this;
   }
