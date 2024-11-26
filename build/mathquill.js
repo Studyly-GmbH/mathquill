@@ -5193,10 +5193,24 @@ var __assign = (this && this.__assign) || function () {
         function BinaryOperator(ctrlSeq, html, text, mathspeak, treatLikeSymbol) {
             var _this_1 = this;
             if (treatLikeSymbol) {
-                _this_1 = _super.call(this, ctrlSeq, h('span', {}, [html || h.text(ctrlSeq || '')]), undefined, mathspeak) || this;
+                _this_1 = _super.call(this, ctrlSeq, ctrlSeq === '+'
+                    ? h('span', {}, [
+                        h('wbr', {}),
+                        h('span', { class: 'mq-binary-operator' }, [
+                            html || h.text(ctrlSeq || ''),
+                        ]),
+                        h('wbr', {}),
+                    ])
+                    : h('span', {}, [html || h.text(ctrlSeq || '')]), undefined, mathspeak) || this;
             }
             else {
-                _this_1 = _super.call(this, ctrlSeq, h('span', { class: 'mq-binary-operator' }, html ? [html] : []), text, mathspeak) || this;
+                _this_1 = _super.call(this, ctrlSeq, ctrlSeq === '='
+                    ? h('span', {}, [
+                        h('wbr', {}),
+                        h('span', { class: 'mq-binary-operator' }, html ? [html] : []),
+                        h('wbr', {}),
+                    ])
+                    : h('span', { class: 'mq-binary-operator' }, html ? [html] : []), text, mathspeak) || this;
             }
             return _this_1;
         }
@@ -7619,9 +7633,10 @@ var __assign = (this && this.__assign) || function () {
         class_7.prototype.sharedSiblingMethod = function (_opts, dir) {
             if (dir === R)
                 return; // ignore if sibling only changed on the right
-            this.domFrag().oneElement().className = plusMinusIsBinaryOperator(this)
-                ? 'mq-binary-operator'
-                : '';
+            this.domFrag().oneElement().className =
+                plusMinusIsBinaryOperator(this) && this.ctrlSeq !== '+'
+                    ? 'mq-binary-operator'
+                    : '';
             return this;
         };
         return class_7;
