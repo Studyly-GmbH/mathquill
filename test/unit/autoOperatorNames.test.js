@@ -2,15 +2,11 @@ suite('autoOperatorNames', function () {
   const $ = window.test_only_jquery;
   var mq;
   var normalConfig = {
-    autoCommands: 'sum int'
+    autoCommands: 'sum int',
   };
   var subscriptConfig = {
     autoCommands: 'sum int',
-    disableAutoSubstitutionInSubscripts: true
-  };
-  const subscriptConfigNoLog = {
-    autoCommands: 'sum int',
-    disableAutoSubstitutionInSubscripts: { except: 'log' }
+    disableAutoSubstitutionInSubscripts: true,
   };
 
   setup(function () {
@@ -82,34 +78,17 @@ suite('autoOperatorNames', function () {
     assertLatex('int allows operatorname', '\\int_{\\sin}^{ }');
   });
 
-  test('works in subscript after log, based on "except" option', function () {
-    // log subscript without config option
-    mq.config(subscriptConfig);
-    mq.typedText('log_');
-    mq.typedText('sin');
-    assertLatex('subscripts do not turn to operatorname', '\\log_{sin}');
-
-    // log subscript
-    mq.latex('');
-    mq.config(subscriptConfigNoLog);
-    mq.typedText('log_');
-    mq.typedText('sin');
-    assertLatex('log subscript does turn to operatorname', '\\log_{\\sin}');
-  });
-
   test('no auto operator names in simple subscripts when typing', function () {
-    // normal
     mq.config(normalConfig);
     mq.typedText('x_');
     mq.typedText('sin');
     assertLatex('subscripts turn to operatorname', 'x_{\\sin}');
-
-    // subscript config
     mq.latex('');
     mq.config(subscriptConfig);
     mq.typedText('x_');
     mq.typedText('sin');
     assertLatex('subscripts do not turn to operatorname', 'x_{sin}');
+    mq.config(normalConfig);
   });
 
   test('no auto operator names in simple subscripts when pasting', function () {

@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
   <head>
     <meta charset="UTF-8" />
@@ -133,8 +133,9 @@
         div.querySelector('.mq-result').innerText = `MQ: ${mqDuration.toFixed(
           2
         )} ms`;
-        div.querySelector('.html-result').innerText =
-          `HTML: ${htmlDuration.toFixed(2)} ms`;
+        div.querySelector(
+          '.html-result'
+        ).innerText = `HTML: ${htmlDuration.toFixed(2)} ms`;
       }
 
       function printResults() {
@@ -155,7 +156,7 @@
           [(a, b) => `${a}^{${b}}`, 2],
           [(a, b) => `${a}_{${b}}`, 2],
           [(...args) => `\\left[${args.join(',')}\\right]`, -1],
-          [(a) => `\\left(${a}\\right)`, 1]
+          [(a) => `\\left(${a}\\right)`, 1],
         ];
 
         let [fn, arity] =

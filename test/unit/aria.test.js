@@ -14,9 +14,7 @@ suite('aria', function () {
   test('mathfield has aria-hidden on mq-root-block', function () {
     mathField.latex('1+\\frac{1}{x}');
     var ariaHiddenChildren = $(container).find('[aria-hidden]="true"');
-    // There will be two hidden children: the raw text of the field, and its mathspeak representation.
-    // The internal aria-labelledby attribute of the focusable text will still cause the mathspeak to be read aloud, while the visual math remains viewable.
-    assert.equal(ariaHiddenChildren.length, 2, '2 aria-hidden elements');
+    assert.equal(ariaHiddenChildren.length, 1, '1 aria-hidden element');
     assert.ok(
       ariaHiddenChildren.hasClass('mq-root-block'),
       'aria-hidden is set on mq-root-block'
@@ -27,67 +25,29 @@ suite('aria', function () {
     var staticMath = MQ.StaticMath(container);
     staticMath.latex('1+\\frac{1}{x}');
     var ariaHiddenChildren = $(container).find('[aria-hidden]="true"');
-    assert.equal(ariaHiddenChildren.length, 2, '2 aria-hidden elements');
-    assert.ok(
-      ariaHiddenChildren[1].nodeName,
-      'textarea',
-      'aria-hidden is set on static math textarea'
-    );
-    assert.ok(
-      ariaHiddenChildren[1].classList.contains('mq-root-block'),
-      'aria-hidden is set on mq-root-block'
-    );
-  });
-
-  test('Tabbable static math aria-hidden', function () {
-    var staticMath = MQ.StaticMath(container, { tabbable: true });
-    staticMath.latex('1+\\frac{1}{x}');
-    var ariaHiddenChildren = $(container).find('[aria-hidden]="true"');
-    // There will be two hidden children: the raw text of the field, and its mathspeak representation.
-    // The internal aria-labelledby attribute of the focusable text will still cause the mathspeak to be read aloud, while the visual math remains viewable.
-    assert.equal(ariaHiddenChildren.length, 2, '2 aria-hidden elements');
+    assert.equal(ariaHiddenChildren.length, 1, '1 aria-hidden element');
     assert.ok(
       ariaHiddenChildren.hasClass('mq-root-block'),
       'aria-hidden is set on mq-root-block'
-    );
-    var mathspeak = $(container).find('.mq-mathspeak');
-    assert.equal(mathspeak.length, 1, 'One mathspeak region');
-    var mathspeakId = mathspeak[0].getAttribute('id');
-    assert.ok(!!mathspeakId, 'mathspeak element assigned an id');
-    var textarea = $(container).find('textarea');
-    assert.equal(textarea.length, 1, 'One textarea');
-    assert.equal(
-      textarea[0].getAttribute('aria-labelledby'),
-      mathspeakId,
-      'textarea is aria-labelledby mathspeak region'
     );
   });
 
   test('MathQuillMathField aria-hidden', function () {
     var staticMath = MQ.StaticMath(container);
     staticMath.latex('1+\\sqrt{\\MathQuillMathField{x^2+y^2}}+\\frac{1}{x}');
-    assert.equal(
-      $(container).find('textarea').length,
-      2,
-      'Two text area for inner editable field'
-    );
-    assert.equal(
-      $(container).find('textarea[tabindex=-1]').length,
-      1,
-      'The static math textarea is not tabbable.'
-    );
-    var textArea = $(container).find('textarea:eq(0)');
+    var textArea = $(container).find('textarea');
+    assert.equal(textArea.length, 1, 'One text area for inner editable field');
     assert.equal(
       textArea.closest('[aria-hidden]="true"').length,
-      1,
-      'Textarea has one aria-hidden parent'
+      0,
+      'Textarea has no aria-hidden parent'
     );
     var mathSpeak = $(container).find('.mq-mathspeak');
-    assert.equal(mathSpeak.length, 2, 'Two mathspeak regions');
+    assert.equal(mathSpeak.length, 1, 'One mathspeak region');
     assert.equal(
       mathSpeak.closest('[aria-hidden]="true"').length,
-      1,
-      'Mathspeak has 1 aria-hidden parent'
+      0,
+      'Textarea has no aria-hidden parent'
     );
     var nHiddenTexts = 0;
     var allChildren = $(container).find('*');
@@ -180,41 +140,6 @@ suite('aria', function () {
     mathField.latex('');
   });
 
-  test('typing and backspacing a binomial', function () {
-    mathField.typedText('1');
-    assertAriaEqual('1');
-    mathField.cmd('\\choose');
-    // Matching behavior of "over", we don't get "choose" as the ARIA here.
-    mathField.typedText('2');
-    assertAriaEqual('2');
-
-    mathField.keystroke('Tab');
-    assertAriaEqual('after StartBinomial, 1 Choose 2 , EndBinomial');
-
-    mathField.keystroke('Backspace');
-    assertAriaEqual('end of lower index 2');
-    mathField.keystroke('Backspace');
-    assertAriaEqual('2');
-    mathField.keystroke('Backspace');
-    assertAriaEqual('Choose');
-    mathField.keystroke('Backspace');
-    assertAriaEqual('1');
-  });
-
-  test('navigating a binomial', function () {
-    mathField.typedText('1');
-    assertAriaEqual('1');
-    mathField.cmd('\\choose');
-    // Matching behavior of "over", we don't get "choose" as the ARIA here.
-    mathField.typedText('2');
-    assertAriaEqual('2');
-    mathField.keystroke('Up');
-    assertAriaEqual('upper index 1');
-    mathField.keystroke('Down');
-    assertAriaEqual('lower index 2');
-    mathField.latex('');
-  });
-
   test('typing and backspacing through parenthesies', function () {
     mathField.typedText('(');
     assertAriaEqual('left parenthesis');
@@ -264,7 +189,7 @@ suite('aria', function () {
     mathField.blur();
     setTimeout(function () {
       assert.equal(
-        mathField.__controller.mathspeakSpan.textContent,
+        mathField.__controller.textarea.getAttribute('aria-label'),
         'Math Input: "s" "q" "r" "t" left parenthesis, "x" , right parenthesis'
       );
       done();

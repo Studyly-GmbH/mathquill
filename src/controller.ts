@@ -34,7 +34,6 @@ class ControllerBase {
 
   textareaSpan: HTMLElement | undefined;
   mathspeakSpan: HTMLElement | undefined;
-  mathspeakId: string | undefined;
 
   constructor(
     root: ControllerRoot,
@@ -158,15 +157,15 @@ class ControllerBase {
     );
   }
 
-  getTextarea() {
-    const textarea = this.textarea;
-    pray('textarea initialized', textarea);
+  getTextareaOrThrow() {
+    var textarea = this.textarea;
+    if (!textarea) throw new Error('expected a textarea');
     return textarea;
   }
 
-  getTextareaSpan() {
-    const textareaSpan = this.textareaSpan;
-    pray('textareaSpan initialized', textareaSpan);
+  getTextareaSpanOrThrow() {
+    var textareaSpan = this.textareaSpan;
+    if (!textareaSpan) throw new Error('expected a textareaSpan');
     return textareaSpan;
   }
 
@@ -194,7 +193,7 @@ class ControllerBase {
   }
 
   // overridden
-  updateMathspeak(_opts?: { emptyContent: boolean }) {}
+  updateMathspeak() {}
   scrollHoriz() {}
   selectionChanged() {}
   setOverflowClasses() {}

@@ -64,22 +64,25 @@ class Controller_focusBlur extends Controller_exportText {
       }); // none, intentional blur: #264
       this.cursor.clearSelection().endSelection();
       this.blur();
-      this.updateMathspeak({ emptyContent: true });
+      this.updateMathspeak();
       this.scrollHoriz();
     });
     window.addEventListener('blur', this.handleWindowBlur);
   };
 
   private handleTextareaFocusStatic = () => {
-    if (!this.cursor.selection) {
-      this.cursor.controller.selectAll();
-    }
     this.blurred = false;
   };
 
   private handleTextareaBlurStatic = () => {
-    this.cursor.clearSelection();
-    this.updateMathspeak({ emptyContent: true });
+    if (this.cursor.selection) {
+      this.cursor.selection.clear();
+    }
+    //detaching during blur explodes in WebKit
+    setTimeout(() => {
+      domFrag(this.getTextareaSpanOrThrow()).detach();
+      this.blurred = true;
+    });
   };
 
   private handleWindowBlur = () => {
@@ -87,22 +90,19 @@ class Controller_focusBlur extends Controller_exportText {
     clearTimeout(this.blurTimeout); // tabs/windows, not intentional blur
     if (this.cursor.selection)
       this.cursor.selection.domFrag().addClass('mq-blur');
-    this.blurWithoutResettingCursor();
-    this.updateMathspeak({ emptyContent: true });
+    this.blur();
+    this.updateMathspeak();
   };
 
   private blur() {
-    this.blurWithoutResettingCursor();
-    if (this.options && this.options.resetCursorOnBlur) {
-      this.cursor.resetToEnd(this);
-    }
-  }
-
-  private blurWithoutResettingCursor() {
-    // not directly in the textarea blur handler so has to be
+    // not directly in the textarea blur handler so as to be
     this.cursor.hide().parent.blur(this.cursor); // synchronous with/in the same frame as
     domFrag(this.container).removeClass('mq-focused'); // clearing/blurring selection
     window.removeEventListener('blur', this.handleWindowBlur);
+
+    if (this.options && this.options.resetCursorOnBlur) {
+      this.cursor.resetToEnd(this);
+    }
   }
 
   addEditableFocusBlurListeners() {
@@ -110,7 +110,7 @@ class Controller_focusBlur extends Controller_exportText {
       cursor = ctrlr.cursor;
     this.addTextareaEventListeners({
       focus: this.handleTextareaFocusEditable,
-      blur: this.handleTextareaBlurEditable
+      blur: this.handleTextareaBlurEditable,
     });
     ctrlr.blurred = true;
     cursor.hide().parent.blur(cursor);
@@ -119,7 +119,7 @@ class Controller_focusBlur extends Controller_exportText {
   addStaticFocusBlurListeners() {
     this.addTextareaEventListeners({
       focus: this.handleTextareaFocusStatic,
-      blur: this.handleTextareaBlurStatic
+      blur: this.handleTextareaBlurStatic,
     });
   }
 }

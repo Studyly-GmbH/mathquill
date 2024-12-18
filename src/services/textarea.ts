@@ -2,26 +2,15 @@
  * Manage the MathQuill instance's textarea
  * (as owned by the Controller)
  ********************************************/
-Options.prototype.substituteTextarea = function (tabbable?: boolean) {
+Options.prototype.substituteTextarea = function () {
   return h('textarea', {
     autocapitalize: 'off',
     autocomplete: 'off',
     autocorrect: 'off',
     spellcheck: false,
     'x-palm-disable-ste-all': true,
-    tabindex: tabbable ? undefined : '-1'
   });
 };
-
-/* A light-weight function to generate a UUID */
-function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
 function defaultSubstituteKeyboardEvents(jq: $, controller: Controller) {
   return saneKeyboardEvents(jq[0] as HTMLTextAreaElement, controller);
 }
@@ -32,38 +21,13 @@ class Controller extends Controller_scrollHoriz {
 
   createTextarea() {
     this.textareaSpan = h('span', { class: 'mq-textarea' });
-
-    const tabbable =
-      this.options.tabbable !== undefined
-        ? this.options.tabbable
-        : this.KIND_OF_MQ !== 'StaticMath';
-
-    const textarea = this.options.substituteTextarea(tabbable);
+    const textarea = this.options.substituteTextarea();
     if (!textarea.nodeType) {
       throw 'substituteTextarea() must return a DOM element, got ' + textarea;
-    }
-    if (!this.options.tabbable && this.KIND_OF_MQ === 'StaticMath') {
-      // aria-hide noninteractive textarea element for static math
-      textarea.setAttribute('aria-hidden', 'true');
     }
     this.textarea = domFrag(textarea)
       .appendTo(this.textareaSpan)
       .oneElement() as HTMLTextAreaElement;
-    if (!this.mathspeakSpan) {
-      // We want only one of these even if the textarea is replaced
-      this.mathspeakId = generateUUID();
-      this.mathspeakSpan = h('span', {
-        class: 'mq-mathspeak',
-        id: this.mathspeakId
-      });
-      domFrag(this.textareaSpan).prepend(domFrag(this.mathspeakSpan));
-    }
-    if (this.mathspeakId) {
-      textarea?.setAttribute('aria-labelledby', this.mathspeakId);
-    }
-    if (tabbable && this.mathspeakSpan) {
-      this.mathspeakSpan.setAttribute('aria-hidden', 'true');
-    }
 
     var ctrlr = this;
     ctrlr.cursor.selectionChanged = function () {
@@ -100,7 +64,6 @@ class Controller extends Controller_scrollHoriz {
     this.selectFn(latex);
   }
 
-  /** Requires `this.textarea` to be initialized. */
   staticMathTextareaEvents() {
     var ctrlr = this;
     this.removeTextareaEventListener('cut');
@@ -111,24 +74,24 @@ class Controller extends Controller_scrollHoriz {
       this.addTextareaEventListeners({
         copy: function () {
           ctrlr.setTextareaSelection();
-        }
+        },
       });
     }
 
     this.addStaticFocusBlurListeners();
 
-    const textarea = this.getTextarea();
-    const { select } = saneKeyboardEvents(textarea, this);
-    this.selectFn = select;
-    const textareaSpan = this.getTextareaSpan();
-    domFrag(this.container).prepend(domFrag(textareaSpan));
+    ctrlr.selectFn = function (text: string) {
+      const textarea = ctrlr.getTextareaOrThrow();
+      if (!(textarea instanceof HTMLTextAreaElement)) return;
+      textarea.value = text;
+      if (text) textarea.select();
+    };
   }
 
-  /** Requires `this.textarea` to be initialized. */
   editablesTextareaEvents() {
     var ctrlr = this;
-    const textarea = ctrlr.getTextarea();
-    const textareaSpan = ctrlr.getTextareaSpan();
+    const textarea = ctrlr.getTextareaOrThrow();
+    const textareaSpan = ctrlr.getTextareaSpanOrThrow();
 
     if (this.options.version < 3) {
       const $ = this.options.assertJquery();
@@ -148,11 +111,10 @@ class Controller extends Controller_scrollHoriz {
     this.addEditableFocusBlurListeners();
     this.updateMathspeak();
   }
-
   unbindEditablesEvents() {
     var ctrlr = this;
-    const textarea = ctrlr.getTextarea();
-    const textareaSpan = ctrlr.getTextareaSpan();
+    const textarea = ctrlr.getTextareaOrThrow();
+    const textareaSpan = ctrlr.getTextareaSpanOrThrow();
 
     this.selectFn = function (text: string) {
       if (!(textarea instanceof HTMLTextAreaElement)) return;
@@ -214,14 +176,16 @@ class Controller extends Controller_scrollHoriz {
     }
   }
 
-  /** Set up for a static MQ field (i.e., initialize the focus state to blurred) */
+  /** Set up for a static MQ field (i.e., create and attach the mathspeak element and initialize the focus state to blurred) */
   setupStaticField() {
+    this.mathspeakSpan = h('span', { class: 'mq-mathspeak' });
+    domFrag(this.container).prepend(domFrag(this.mathspeakSpan));
     this.updateMathspeak();
     this.blurred = true;
     this.cursor.hide().parent.blur(this.cursor);
   }
 
-  updateMathspeak(opts?: { emptyContent: boolean }) {
+  updateMathspeak() {
     var ctrlr = this;
     // If the controller's ARIA label doesn't end with a punctuation mark, add a colon by default to better separate it from mathspeak.
     var ariaLabel = ctrlr.getAriaLabel();
@@ -229,17 +193,27 @@ class Controller extends Controller_scrollHoriz {
       ? ariaLabel + ':'
       : ariaLabel;
     var mathspeak = ctrlr.root.mathspeak().trim();
-    const emptyContent = !!opts?.emptyContent; // Set when the focused field has been blurred so alert text is removed when it's no longer needed.
-    this.aria.clear({ emptyContent });
+    this.aria.clear();
 
+    const textarea = ctrlr.getTextareaOrThrow();
+    // For static math, provide mathspeak in a visually hidden span to allow screen readers and other AT to traverse the content.
+    // For editable math, assign the mathspeak to the textarea's ARIA label (AT can use text navigation to interrogate the content).
+    // Be certain to include the mathspeak for only one of these, though, as we don't want to include outdated labels if a field's editable state changes.
+    // By design, also take careful note that the ariaPostLabel is meant to exist only for editable math (e.g. to serve as an evaluation or error message)
+    // so it is not included for static math mathspeak calculations.
+    // The mathspeakSpan should exist only for static math, so we use its presence to decide which approach to take.
     if (!!ctrlr.mathspeakSpan) {
+      textarea.setAttribute('aria-label', '');
       ctrlr.mathspeakSpan.textContent = (
         labelWithSuffix +
         ' ' +
-        mathspeak +
-        ' ' +
-        ctrlr.ariaPostLabel
+        mathspeak
       ).trim();
+    } else {
+      textarea.setAttribute(
+        'aria-label',
+        (labelWithSuffix + ' ' + mathspeak + ' ' + ctrlr.ariaPostLabel).trim()
+      );
     }
   }
 }
