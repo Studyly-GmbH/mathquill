@@ -15,6 +15,7 @@ interface InternalMathQuillInstance {
     opts: ConfigOptions,
     _interfaceVersion: number
   ): IBaseMathQuill;
+  config(opts: ConfigOptions): IBaseMathQuill;
 }
 
 interface IBaseMathQuill extends BaseMathQuill, InternalMathQuillInstance {}
@@ -57,12 +58,9 @@ const processedOptions = {
   quietEmptyDelimiters: true,
   autoParenthesizedFunctions: true,
   autoOperatorNames: true,
-  infixOperatorNames: true,
-  prefixOperatorNames: true,
   leftRightIntoCmdGoes: true,
   maxDepth: true,
   interpretTildeAsSim: true,
-  disableAutoSubstitutionInSubscripts: true
 };
 type ProcessedOption = keyof typeof processedOptions;
 
@@ -89,11 +87,11 @@ class Options {
   constructor(public version: 1 | 2 | 3) {}
 
   ignoreNextMousedown: (_el: MouseEvent) => boolean;
-  substituteTextarea: (tabbable?: boolean) => HTMLElement;
+  substituteTextarea: () => HTMLElement;
   /** Only used in interface versions 1 and 2. */
   substituteKeyboardEvents: SubstituteKeyboardEvents;
 
-  restrictMismatchedBrackets?: boolean | 'none';
+  restrictMismatchedBrackets?: boolean;
   typingSlashCreatesNewFraction?: boolean;
   charsThatBreakOutOfSupSub: string;
   sumStartsWithNEquals?: boolean;
@@ -106,8 +104,6 @@ class Options {
   resetCursorOnBlur?: boolean | undefined;
   leftRightIntoCmdGoes?: 'up' | 'down';
   enableDigitGrouping?: boolean;
-  tripleDotsAreEllipsis?: boolean;
-  tabbable?: boolean;
   mouseEvents?: boolean;
   maxDepth?: number;
   disableCopyPaste?: boolean;
@@ -118,14 +114,10 @@ class Options {
   overrideTypedText?: (text: string) => void;
   overrideKeystroke: (key: string, event: KeyboardEvent) => void;
   autoOperatorNames: AutoDict;
-  infixOperatorNames: { [name in string]?: true };
-  prefixOperatorNames: { [name in string]?: true };
   autoCommands: AutoDict;
   autoParenthesizedFunctions: AutoDict;
   quietEmptyDelimiters: { [id: string]: any };
-  disableAutoSubstitutionInSubscripts?:
-    | boolean
-    | { except: { [name in string]?: true } };
+  disableAutoSubstitutionInSubscripts?: boolean;
   interpretTildeAsSim: boolean;
   handlers?: {
     fns: HandlerOptions;
@@ -231,8 +223,8 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
     handlers: (handlers) => ({
       // casting to the v3 version of this type
       fns: (handlers as HandlerOptions) || {},
-      APIClasses
-    })
+      APIClasses,
+    }),
   };
 
   function config(currentOptions: CursorOptions, newOptions: ConfigOptions) {
@@ -243,7 +235,7 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
             [
               "As of interface version 3, the 'substituteKeyboardEvents'",
               "option is no longer supported. Use 'overrideTypedText' and",
-              "'overrideKeystroke' instead."
+              "'overrideKeystroke' instead.",
             ].join(' ')
           );
         }
@@ -323,7 +315,7 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
     mathspeak() {
       return this.__controller.exportMathSpeak();
     }
-    latex(latex: unknown): this;
+    latex(latex: unknown): typeof this;
     latex(): string;
     latex(latex?: unknown) {
       if (arguments.length > 0) {
@@ -338,6 +330,7 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
     selection() {
       return this.__controller.exportLatexSelection();
     }
+
     html() {
       return this.__controller.root
         .domFrag()
@@ -354,15 +347,6 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
       });
       return this;
     }
-    focus() {
-      this.__controller.getTextarea().focus();
-      if (this.__controller.editable) this.__controller.scrollHoriz();
-      return this;
-    }
-    blur() {
-      this.__controller.getTextarea().blur();
-      return this;
-    }
   }
 
   abstract class EditableField
@@ -376,15 +360,15 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
       this.__controller.editablesTextareaEvents();
       return this;
     }
-    select() {
-      this.__controller.selectAll();
+    focus() {
+      this.__controller.getTextareaOrThrow().focus();
+      this.__controller.scrollHoriz();
       return this;
     }
-    clearSelection() {
-      this.__controller.cursor.clearSelection();
+    blur() {
+      this.__controller.getTextareaOrThrow().blur();
       return this;
     }
-
     write(latex: string) {
       this.__controller.writeLatex(latex);
       this.__controller.scrollHoriz();
@@ -422,6 +406,14 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
 
       ctrlr.scrollHoriz();
       if (ctrlr.blurred) cursor.hide().parent.blur(cursor);
+      return this;
+    }
+    select() {
+      this.__controller.selectAll();
+      return this;
+    }
+    clearSelection() {
+      this.__controller.cursor.clearSelection();
       return this;
     }
 
@@ -484,7 +476,7 @@ function getInterface(v: number): MathQuill.v3.API | MathQuill.v1.API {
 
   var APIClasses: APIClasses = {
     AbstractMathQuill,
-    EditableField
+    EditableField,
   } as unknown as APIClasses;
 
   pray('API.StaticMath defined', API.StaticMath);

@@ -292,21 +292,9 @@ class NodeBase {
   }
 
   shouldIgnoreSubstitutionInSimpleSubscript(options: CursorOptions) {
-    const opt = options.disableAutoSubstitutionInSubscripts;
-    if (!opt) return false;
+    if (!options.disableAutoSubstitutionInSubscripts) return false;
     if (!this.parent) return false;
     if (!(this.parent.parent instanceof SupSub)) return false;
-
-    // Allow substitution in e.g. log subscripts
-    const before = this.parent.parent[L];
-    if (
-      typeof opt === 'object' &&
-      before instanceof Letter &&
-      before.endsWord &&
-      opt.except[before.endsWord]
-    ) {
-      return false;
-    }
 
     // Mathquill is gross. There are many different paths that
     // create subscripts and sometimes we don't even construct
@@ -392,15 +380,7 @@ function prayWellFormed(parent: MQNode, leftward: NodeRef, rightward: NodeRef) {
 
       // or it's there and its [R] and .parent are properly set up
       return leftward[R] === rightward && leftward.parent === parent;
-    })(),
-    {
-      parent: parent,
-      leftward: leftward,
-      leftwardL: leftward && leftward[L],
-      leftwardR: leftward && leftward[R],
-      rightwardL: rightward && rightward[L],
-      rightwardR: rightward && rightward[R]
-    }
+    })()
   );
 
   pray(
@@ -411,16 +391,7 @@ function prayWellFormed(parent: MQNode, leftward: NodeRef, rightward: NodeRef) {
 
       // or it's there and its [L] and .parent are properly set up
       return rightward[L] === leftward && rightward.parent === parent;
-    })(),
-    {
-      parent: parent,
-      rightward: rightward,
-      leftwardL: leftward && leftward[L],
-      leftwardR: leftward && leftward[R],
-      rightwardL: rightward && rightward[L],
-      rightwardR: rightward && rightward[R],
-      rightwardParent: rightward && rightward.parent
-    }
+    })()
   );
 }
 
@@ -450,10 +421,7 @@ class Fragment {
     if (dir === undefined) dir = L;
     prayDirection(dir);
 
-    pray('no half-empty fragments', !withDir === !oppDir, {
-      withDir,
-      oppDir
-    });
+    pray('no half-empty fragments', !withDir === !oppDir);
 
     if (!withDir || !oppDir) {
       this.setEnds({ [L]: 0, [R]: 0 });
@@ -469,7 +437,7 @@ class Fragment {
 
     const ends = {
       [dir as Direction]: withDir,
-      [-dir as Direction]: oppDir
+      [-dir as Direction]: oppDir,
     } as Ends<MQNode>;
 
     this.setEnds(ends);

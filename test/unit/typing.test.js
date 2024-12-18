@@ -7,8 +7,8 @@ suite('typing with auto-replaces', function () {
       handlers: {
         edit: function () {
           mostRecentlyReportedLatex = mq.latex();
-        }
-      }
+        },
+      },
     });
   });
 
@@ -60,33 +60,6 @@ suite('typing with auto-replaces', function () {
       var mq_basic = MQBasic.MathField($('<span></span>').appendTo('#mock')[0]);
       mq_basic.typedText('1/2');
       assert.equal(mq_basic.latex(), '\\frac{1}{2}');
-    });
-
-    test('digit grouping ellipsis affects LiveFraction', () => {
-      mq.config({
-        enableDigitGrouping: true,
-        tripleDotsAreEllipsis: true
-      });
-      mq.typedText('1...2/');
-      assertLatex('1...\\frac{2}{ }');
-    });
-  });
-
-  suite('Choose', function () {
-    test('full MathQuill', function () {
-      mq.typedText('1').cmd('\\choose').typedText('2').keystroke('Tab');
-      mq.typedText('+sinx').cmd('\\choose');
-      assertLatex('\\binom{1}{2}+\\binom{\\sin x}{ }');
-      mq.latex('').typedText('1+').cmd('\\choose').typedText('2');
-      assertLatex('1+\\binom{2}{ }');
-      mq.latex('').typedText('1 2').cmd('\\choose').typedText('3');
-      assertLatex('1\\ \\binom{2}{3}');
-    });
-
-    test('mathquill-basic', function () {
-      var mq_basic = MQBasic.MathField($('<span></span>').appendTo('#mock')[0]);
-      mq_basic.typedText('1').cmd('\\choose').typedText('2');
-      assert.equal(mq_basic.latex(), '\\binom{1}{2}');
     });
   });
 
@@ -423,32 +396,6 @@ suite('typing with auto-replaces', function () {
         test('[a,b) and (a,b] still work', function () {
           mq.typedText('[a,b) + (a,b]');
           assertLatex('\\left[a,b\\right)\\ +\\ \\left(a,b\\right]');
-        });
-      });
-
-      suite('restrictMismatchedBrackets: "none"', function () {
-        setup(function () {
-          mq.config({ restrictMismatchedBrackets: 'none' });
-        });
-        test('typing (|x|+1) works', function () {
-          mq.typedText('(|x|+1)');
-          assertLatex('\\left(\\left|x\\right|+1\\right)');
-        });
-        test('typing [x} becomes [{x}]', function () {
-          mq.typedText('[x}');
-          assertLatex('\\left[\\left\\{x\\right\\}\\right]');
-        });
-        test('normal matching pairs {f(n), [a,b]} work', function () {
-          mq.typedText('{f(n), [a,b]}');
-          assertLatex(
-            '\\left\\{f\\left(n\\right),\\ \\left[a,b\\right]\\right\\}'
-          );
-        });
-        test('[a,b) and (a,b] do not match', function () {
-          mq.typedText('[a,b) + (a,b]');
-          assertLatex(
-            '\\left[\\left(a,b\\right)\\ +\\ \\left(\\left[a,b\\right]\\right)\\right]'
-          );
         });
       });
     });
@@ -1146,13 +1093,13 @@ suite('typing with auto-replaces', function () {
     var normalConfig = {
       autoParenthesizedFunctions: 'sin cos tan ln',
       autoOperatorNames: 'sin ln',
-      autoCommands: 'sum int'
+      autoCommands: 'sum int',
     };
     var subscriptConfig = {
       autoParenthesizedFunctions: 'sin cos tan ln',
       autoOperatorNames: 'sin ln',
       autoCommands: 'sum int',
-      disableAutoSubstitutionInSubscripts: true
+      disableAutoSubstitutionInSubscripts: true,
     };
 
     setup(function () {
@@ -1245,7 +1192,7 @@ suite('typing with auto-replaces', function () {
   suite('typingSlashCreatesNewFraction', function () {
     setup(function () {
       mq.config({
-        typingSlashCreatesNewFraction: true
+        typingSlashCreatesNewFraction: true,
       });
     });
 
@@ -1254,22 +1201,17 @@ suite('typing with auto-replaces', function () {
       mq.typedText('1/');
       assertLatex('1\\frac{ }{ }');
     });
-
-    test("typing slash creates new fraction doesn't affect choose", function () {
-      mq.typedText('1').cmd('\\choose');
-      assertLatex('\\binom{1}{ }');
-    });
   });
 
   suite('autoCommands', function () {
     var normalConfig = {
       autoOperatorNames: 'sin pp',
-      autoCommands: 'pi tau phi theta Gamma sum prod sqrt nthroot cbrt percent'
+      autoCommands: 'pi tau phi theta Gamma sum prod sqrt nthroot cbrt percent',
     };
     var subscriptConfig = {
       autoOperatorNames: 'sin pp',
       autoCommands: 'pi tau phi theta Gamma sum prod sqrt nthroot cbrt percent',
-      disableAutoSubstitutionInSubscripts: true
+      disableAutoSubstitutionInSubscripts: true,
     };
 
     setup(function () {
@@ -1306,15 +1248,7 @@ suite('typing with auto-replaces', function () {
       assertLatex('\\tau');
       mq.keystroke('Backspace');
 
-      mq.typedText('τ');
-      assertLatex('\\tau');
-      mq.keystroke('Backspace');
-
       mq.typedText('phi');
-      assertLatex('\\phi');
-      mq.keystroke('Backspace');
-
-      mq.typedText('ϕ');
       assertLatex('\\phi');
       mq.keystroke('Backspace');
 
@@ -1322,15 +1256,7 @@ suite('typing with auto-replaces', function () {
       assertLatex('\\theta');
       mq.keystroke('Backspace');
 
-      mq.typedText('θ');
-      assertLatex('\\theta');
-      mq.keystroke('Backspace');
-
       mq.typedText('Gamma');
-      assertLatex('\\Gamma');
-      mq.keystroke('Backspace');
-
-      mq.typedText('Γ');
       assertLatex('\\Gamma');
       mq.keystroke('Backspace');
 
@@ -1391,12 +1317,9 @@ suite('typing with auto-replaces', function () {
         ' limsup liminf injlim projlim Pr'
       ).split(' ');
       for (var i = 0; i < cmds.length; i += 1) {
-        assert.throws(
-          function () {
-            MQ.config({ autoCommands: cmds[i] });
-          },
-          'MQ.config({ autoCommands: "' + cmds[i] + '" })'
-        );
+        assert.throws(function () {
+          MQ.config({ autoCommands: cmds[i] });
+        }, 'MQ.config({ autoCommands: "' + cmds[i] + '" })');
       }
     });
 
@@ -1407,12 +1330,9 @@ suite('typing with auto-replaces', function () {
         ' '
       );
       for (var i = 0; i < cmds.length; i += 1) {
-        assert.throws(
-          function () {
-            MQ.config({ autoCommands: cmds[i] });
-          },
-          'MQ.config({ autoCommands: "' + cmds[i] + '" })'
-        );
+        assert.throws(function () {
+          MQ.config({ autoCommands: cmds[i] });
+        }, 'MQ.config({ autoCommands: "' + cmds[i] + '" })');
       }
     });
 
