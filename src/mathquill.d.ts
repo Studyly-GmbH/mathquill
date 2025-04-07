@@ -23,27 +23,9 @@ declare namespace MathQuill {
       id: number;
       data: { [key: string]: any };
       revert: () => HTMLElement;
-      latex(latex: string): BaseMathQuill;
-      latex(): string;
       reflow: () => void;
       el: () => HTMLElement;
       getAriaLabel(): string;
-      setAriaLabel(str: string): BaseMathQuill;
-      html: () => string;
-      mathspeak: () => string;
-      text(): string;
-    }
-
-    interface EditableMathQuill {
-      id: number;
-      data: { [key: string]: any };
-      revert: () => HTMLElement;
-      latex(latex: string): EditableMathQuill;
-      latex(): string;
-      reflow: () => void;
-      el: () => HTMLElement;
-      getAriaLabel(): string;
-      setAriaLabel(str: string): EditableMathQuill;
       html: () => string;
       mathspeak: () => string;
       text(): string;
@@ -53,6 +35,16 @@ declare namespace MathQuill {
         endIndex: number;
       };
 
+      //chainable methods
+      config(opts: Config): this;
+      latex(latex: string): this;
+      latex(): string;
+      setAriaLabel(str: string): this;
+      blur(): this;
+      focus(): this;
+    }
+
+    interface EditableMathQuill extends BaseMathQuill {
       select: () => EditableMathQuill;
       moveToRightEnd: () => EditableMathQuill;
       moveToLeftEnd: () => EditableMathQuill;
@@ -61,8 +53,6 @@ declare namespace MathQuill {
       keystroke: (key: string, evt?: KeyboardEvent) => EditableMathQuill;
       typedText: (text: string) => EditableMathQuill;
       clearSelection: () => EditableMathQuill;
-      blur: () => EditableMathQuill;
-      focus: () => EditableMathQuill;
       getAriaPostLabel: () => string;
       setAriaPostLabel: (str: string, timeout?: number) => EditableMathQuill;
       ignoreNextMousedown: (func: () => boolean) => EditableMathQuill;
@@ -107,7 +97,7 @@ declare namespace MathQuill {
         select: (text: string) => void;
       };
 
-      restrictMismatchedBrackets?: boolean;
+      restrictMismatchedBrackets?: boolean | 'none';
       typingSlashCreatesNewFraction?: boolean;
       charsThatBreakOutOfSupSub?: string;
       sumStartsWithNEquals?: boolean;
@@ -118,8 +108,10 @@ declare namespace MathQuill {
       typingSlashWritesDivisionSymbol?: boolean;
       typingPercentWritesPercentOf?: boolean;
       resetCursorOnBlur?: boolean | undefined;
+      tabbable?: boolean;
       leftRightIntoCmdGoes?: 'up' | 'down';
       enableDigitGrouping?: boolean;
+      tripleDotsAreEllipsis?: boolean;
       mouseEvents?: boolean;
       maxDepth?: number;
       disableCopyPaste?: boolean;
@@ -129,11 +121,13 @@ declare namespace MathQuill {
       overrideTypedText?: (text: string) => void;
       overrideKeystroke?: (key: string, event: KeyboardEvent) => void;
       autoOperatorNames?: string;
+      infixOperatorNames?: string;
+      prefixOperatorNames?: string;
       autoCommands?: string;
       logAriaAlerts?: boolean;
       autoParenthesizedFunctions?: string;
       quietEmptyDelimiters?: string;
-      disableAutoSubstitutionInSubscripts?: boolean;
+      disableAutoSubstitutionInSubscripts?: boolean | { except: string };
       interpretTildeAsSim?: boolean;
       handlers?: HandlerOptions<BaseMathQuill<$>>;
     }
@@ -173,6 +167,8 @@ declare namespace MathQuill {
       html: () => string;
       mathspeak: () => string;
       text(): string;
+      blur: () => void;
+      focus: () => void;
     }
 
     interface EditableMathQuill extends BaseMathQuill {
@@ -183,8 +179,6 @@ declare namespace MathQuill {
       keystroke: (key: string, evt?: KeyboardEvent) => void;
       typedText: (text: string) => void;
       clearSelection: () => void;
-      blur: () => void;
-      focus: () => void;
       getAriaPostLabel: () => string;
       setAriaPostLabel: (str: string, timeout?: number) => void;
       ignoreNextMousedown: (func: () => boolean) => void;

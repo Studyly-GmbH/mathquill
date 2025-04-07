@@ -39,6 +39,15 @@ var __assign = (this && this.__assign) || function () {
     var min = Math.min;
     var max = Math.max;
     function noop() { }
+    function walkUpAsFarAsPossible(node) {
+        while (node) {
+            if (!node.parent) {
+                return node;
+            }
+            node = node.parent;
+        }
+        return undefined;
+    }
     /**
      * a development-only debug method.  This definition and all
      * calls to `pray` will be stripped from the minified
@@ -49,9 +58,35 @@ var __assign = (this && this.__assign) || function () {
      * with the same name, and only call this function by
      * name.
      */
-    function pray(message, cond) {
-        if (!cond)
-            throw new Error('prayer failed: ' + message);
+    function pray(message, cond, optionalContextNodes) {
+        if (!cond) {
+            var error = new Error('prayer failed: ' + message);
+            // optionally add more context to this prayer failure. We will
+            // trace up as far as possible to get all latex we can find as well
+            // as output the latex down at the direct parent of the prayer failure
+            if (optionalContextNodes) {
+                var jsonData = {};
+                // this data is attached to the error. The app that controls the mathquill
+                // can optionally pull it off when it catches the error and send the extra
+                // info with the error.
+                error.dcgExtraErrorMetaData = jsonData;
+                for (var contextName in optionalContextNodes) {
+                    var localNode = optionalContextNodes[contextName];
+                    var data = (jsonData[contextName] = {});
+                    if (localNode) {
+                        data.localLatex = localNode.latex();
+                        var root = walkUpAsFarAsPossible(localNode);
+                        if (root) {
+                            data.rootLatex = root.latex();
+                        }
+                    }
+                    else {
+                        data.emptyNode = true;
+                    }
+                }
+            }
+            throw error;
+        }
     }
     function prayDirection(dir) {
         pray('a direction was passed', dir === L || dir === R);
@@ -92,8 +127,15 @@ var __assign = (this && this.__assign) || function () {
         return el;
     };
     h.text = function (s) { return document.createTextNode(s); };
-    h.block = function (type, attributes, block) {
-        var out = h(type, attributes, [block.html()]);
+    h.block = function (type, attributes, block, opts) {
+        var children = [block.html()];
+        if (opts === null || opts === void 0 ? void 0 : opts.beforeChild) {
+            children.unshift(opts.beforeChild);
+        }
+        if (opts === null || opts === void 0 ? void 0 : opts.afterChild) {
+            children.push(opts.afterChild);
+        }
+        var out = h(type, attributes, children);
         block.setDOM(out);
         NodeBase.linkElementByBlockNode(out, block);
         return out;
@@ -107,8 +149,8 @@ var __assign = (this && this.__assign) || function () {
         return val.childNodes[0];
     };
     function closest(el, s) {
-        var _a, _b, _c;
-        if (typeof ((_a = el) === null || _a === void 0 ? void 0 : _a.closest) === 'function') {
+        var _a, _b;
+        if (typeof (el === null || el === void 0 ? void 0 : el.closest) === 'function') {
             return el.closest(s);
         }
         if (!(el instanceof HTMLElement))
@@ -121,7 +163,7 @@ var __assign = (this && this.__assign) || function () {
         do {
             if (matches.call(match, s))
                 return match;
-            match = (_c = (_b = match === null || match === void 0 ? void 0 : match.parentElement) !== null && _b !== void 0 ? _b : match === null || match === void 0 ? void 0 : match.parentNode) !== null && _c !== void 0 ? _c : null;
+            match = (_b = (_a = match === null || match === void 0 ? void 0 : match.parentElement) !== null && _a !== void 0 ? _a : match === null || match === void 0 ? void 0 : match.parentNode) !== null && _b !== void 0 ? _b : null;
         } while (match !== null && match.nodeType === 1);
         return null;
     }
@@ -149,7 +191,7 @@ var __assign = (this && this.__assign) || function () {
                 x: 0,
                 y: 0,
                 bottom: 0,
-                right: 0,
+                right: 0
             };
         }
         return el.getBoundingClientRect();
@@ -256,7 +298,7 @@ var __assign = (this && this.__assign) || function () {
             this.span = h('span', {
                 class: 'mq-aria-alert',
                 'aria-live': 'assertive',
-                'aria-atomic': 'true',
+                'aria-atomic': 'true'
             });
             this.msg = '';
             this.items = [];
@@ -327,8 +369,12 @@ var __assign = (this && this.__assign) || function () {
             }
             return this.clear();
         };
-        Aria.prototype.clear = function () {
+        /* Clear out the internal alert message queue.
+         * If opts.emptyContent is set, also clear the rendered text content for the alert element (typically when the focused field has been blurred) so we don't leave stale alert text hanging around. */
+        Aria.prototype.clear = function (opts) {
             this.items.length = 0;
+            if (opts === null || opts === void 0 ? void 0 : opts.emptyContent)
+                this.span.textContent = '';
             return this;
         };
         return Aria;
@@ -1241,12 +1287,21 @@ var __assign = (this && this.__assign) || function () {
             return this.disown();
         };
         NodeBase.prototype.shouldIgnoreSubstitutionInSimpleSubscript = function (options) {
-            if (!options.disableAutoSubstitutionInSubscripts)
+            var opt = options.disableAutoSubstitutionInSubscripts;
+            if (!opt)
                 return false;
             if (!this.parent)
                 return false;
             if (!(this.parent.parent instanceof SupSub))
                 return false;
+            // Allow substitution in e.g. log subscripts
+            var before = this.parent.parent[L];
+            if (typeof opt === 'object' &&
+                before instanceof Letter &&
+                before.endsWord &&
+                opt.except[before.endsWord]) {
+                return false;
+            }
             // Mathquill is gross. There are many different paths that
             // create subscripts and sometimes we don't even construct
             // true instances of `LatexCmds._`. Another problem is that
@@ -1330,14 +1385,29 @@ var __assign = (this && this.__assign) || function () {
                 return parent.getEnd(L) === rightward;
             // or it's there and its [R] and .parent are properly set up
             return leftward[R] === rightward && leftward.parent === parent;
-        })());
+        })(), {
+            parent: parent,
+            leftward: leftward,
+            leftwardL: leftward && leftward[L],
+            leftwardR: leftward && leftward[R],
+            rightwardL: rightward && rightward[L],
+            rightwardR: rightward && rightward[R]
+        });
         pray('rightward is properly set up', (function () {
             // either it's empty and `leftward` is the right end child (possibly empty)
             if (!rightward)
                 return parent.getEnd(R) === leftward;
             // or it's there and its [L] and .parent are properly set up
             return rightward[L] === leftward && rightward.parent === parent;
-        })());
+        })(), {
+            parent: parent,
+            rightward: rightward,
+            leftwardL: leftward && leftward[L],
+            leftwardR: leftward && leftward[R],
+            rightwardL: rightward && rightward[L],
+            rightwardR: rightward && rightward[R],
+            rightwardParent: rightward && rightward.parent
+        });
     }
     /**
      * An entity outside the virtual tree with one-way pointers (so it's only a
@@ -1358,7 +1428,10 @@ var __assign = (this && this.__assign) || function () {
             if (dir === undefined)
                 dir = L;
             prayDirection(dir);
-            pray('no half-empty fragments', !withDir === !oppDir);
+            pray('no half-empty fragments', !withDir === !oppDir, {
+                withDir: withDir,
+                oppDir: oppDir
+            });
             if (!withDir || !oppDir) {
                 this.setEnds((_c = {}, _c[L] = 0, _c[R] = 0, _c));
                 return;
@@ -1685,7 +1758,7 @@ var __assign = (this && this.__assign) || function () {
             frag.addClass('mq-cursor');
             return {
                 left: left,
-                right: right,
+                right: right
             };
         };
         Cursor.prototype.unwrapGramp = function () {
@@ -2017,16 +2090,14 @@ var __assign = (this && this.__assign) || function () {
         ControllerBase.prototype.containerHasFocus = function () {
             return (document.activeElement && this.container.contains(document.activeElement));
         };
-        ControllerBase.prototype.getTextareaOrThrow = function () {
+        ControllerBase.prototype.getTextarea = function () {
             var textarea = this.textarea;
-            if (!textarea)
-                throw new Error('expected a textarea');
+            pray('textarea initialized', textarea);
             return textarea;
         };
-        ControllerBase.prototype.getTextareaSpanOrThrow = function () {
+        ControllerBase.prototype.getTextareaSpan = function () {
             var textareaSpan = this.textareaSpan;
-            if (!textareaSpan)
-                throw new Error('expected a textareaSpan');
+            pray('textareaSpan initialized', textareaSpan);
             return textareaSpan;
         };
         /** Add the given event listeners on this.textarea, replacing the existing listener for that event if it exists. */
@@ -2053,7 +2124,7 @@ var __assign = (this && this.__assign) || function () {
             return this.root.mathspeak();
         };
         // overridden
-        ControllerBase.prototype.updateMathspeak = function () { };
+        ControllerBase.prototype.updateMathspeak = function (_opts) { };
         ControllerBase.prototype.scrollHoriz = function () { };
         ControllerBase.prototype.selectionChanged = function () { };
         ControllerBase.prototype.setOverflowClasses = function () { };
@@ -2068,9 +2139,12 @@ var __assign = (this && this.__assign) || function () {
         quietEmptyDelimiters: true,
         autoParenthesizedFunctions: true,
         autoOperatorNames: true,
+        infixOperatorNames: true,
+        prefixOperatorNames: true,
         leftRightIntoCmdGoes: true,
         maxDepth: true,
         interpretTildeAsSim: true,
+        disableAutoSubstitutionInSubscripts: true
     };
     var baseOptionProcessors = {};
     var Options = /** @class */ (function () {
@@ -2159,7 +2233,7 @@ var __assign = (this && this.__assign) || function () {
         var optionProcessors = __assign(__assign({}, baseOptionProcessors), { handlers: function (handlers) { return ({
                 // casting to the v3 version of this type
                 fns: handlers || {},
-                APIClasses: APIClasses,
+                APIClasses: APIClasses
             }); } });
         function config(currentOptions, newOptions) {
             for (var name in newOptions) {
@@ -2168,7 +2242,7 @@ var __assign = (this && this.__assign) || function () {
                         throw new Error([
                             "As of interface version 3, the 'substituteKeyboardEvents'",
                             "option is no longer supported. Use 'overrideTypedText' and",
-                            "'overrideKeystroke' instead.",
+                            "'overrideKeystroke' instead."
                         ].join(' '));
                     }
                     var value = newOptions[name]; // TODO - think about typing this better
@@ -2261,6 +2335,16 @@ var __assign = (this && this.__assign) || function () {
                 });
                 return this;
             };
+            AbstractMathQuill.prototype.focus = function () {
+                this.__controller.getTextarea().focus();
+                if (this.__controller.editable)
+                    this.__controller.scrollHoriz();
+                return this;
+            };
+            AbstractMathQuill.prototype.blur = function () {
+                this.__controller.getTextarea().blur();
+                return this;
+            };
             return AbstractMathQuill;
         }(Progenote));
         var EditableField = /** @class */ (function (_super) {
@@ -2275,13 +2359,12 @@ var __assign = (this && this.__assign) || function () {
                 this.__controller.editablesTextareaEvents();
                 return this;
             };
-            EditableField.prototype.focus = function () {
-                this.__controller.getTextareaOrThrow().focus();
-                this.__controller.scrollHoriz();
+            EditableField.prototype.select = function () {
+                this.__controller.selectAll();
                 return this;
             };
-            EditableField.prototype.blur = function () {
-                this.__controller.getTextareaOrThrow().blur();
+            EditableField.prototype.clearSelection = function () {
+                this.__controller.cursor.clearSelection();
                 return this;
             };
             EditableField.prototype.write = function (latex) {
@@ -2326,14 +2409,6 @@ var __assign = (this && this.__assign) || function () {
                 ctrlr.scrollHoriz();
                 if (ctrlr.blurred)
                     cursor.hide().parent.blur(cursor);
-                return this;
-            };
-            EditableField.prototype.select = function () {
-                this.__controller.selectAll();
-                return this;
-            };
-            EditableField.prototype.clearSelection = function () {
-                this.__controller.cursor.clearSelection();
                 return this;
             };
             EditableField.prototype.moveToDirEnd = function (dir) {
@@ -2394,7 +2469,7 @@ var __assign = (this && this.__assign) || function () {
         }(AbstractMathQuill));
         var APIClasses = {
             AbstractMathQuill: AbstractMathQuill,
-            EditableField: EditableField,
+            EditableField: EditableField
         };
         pray('API.StaticMath defined', API.StaticMath);
         APIClasses.StaticMath = API.StaticMath(APIClasses);
@@ -2760,7 +2835,7 @@ var __assign = (this && this.__assign) || function () {
         var WHICH_TO_MQ_KEY_STEM = {
             8: 'Backspace',
             9: 'Tab',
-            10: 'Enter',
+            10: 'Enter', // for Safari on iOS
             13: 'Enter',
             16: 'Shift',
             17: 'Control',
@@ -2778,7 +2853,7 @@ var __assign = (this && this.__assign) || function () {
             40: 'Down',
             45: 'Insert',
             46: 'Del',
-            144: 'NumLock',
+            144: 'NumLock'
         };
         var KEY_TO_MQ_KEY_STEM = {
             ArrowRight: 'Right',
@@ -2787,7 +2862,7 @@ var __assign = (this && this.__assign) || function () {
             ArrowUp: 'Up',
             Delete: 'Del',
             Escape: 'Esc',
-            ' ': 'Spacebar',
+            ' ': 'Spacebar'
         };
         function isArrowKey(e) {
             // The keyPress event in FF reports which=0 for some reason. The new
@@ -2978,18 +3053,18 @@ var __assign = (this && this.__assign) || function () {
                 var text = textarea.value;
                 // In Linux and Chrome or Chrome OS, users may issue the Ctrl-Shift-U command to input a Unicode character.
                 // Unfortunately, when the system is in this state, Chrome sends a keydown of "Ctrl-Shift-Unidentified" in Linux, "Ctrl-Shift-U" on Windows/Mac, or "Ctrl-Shift-Process" in the latest Chrome OS.
+                // A keydown of "Unidentified" without modifiers has also been observed in some circumstanced from Chrome under ChromeOS.
                 // Equally vexing is that the keyup correctly comes back as Ctrl-Shift-U.
                 // Furthermore, an input event with the value "u" is still processed in Linux and Chrome OS due to the down/up mismatch.
                 // The end result is that a spurious "u" is sent followed by the intended character.
                 // Due to how this feature works, it's vital to completely ignore Ctrl-Shift-U no matter how the input event appears to Mathquill as clearing the textarea by mistake breaks the expected input flow.
                 if (keydown &&
-                    !keydown.altKey &&
-                    keydown.ctrlKey &&
-                    !keydown.metaKey &&
-                    keydown.shiftKey &&
-                    (keydown.key === 'U' ||
-                        keydown.key === 'Unidentified' ||
-                        keydown.key === 'Process'))
+                    (keydown.key === 'Unidentified' ||
+                        (!keydown.altKey &&
+                            keydown.ctrlKey &&
+                            !keydown.metaKey &&
+                            keydown.shiftKey &&
+                            (keydown.key === 'U' || keydown.key === 'Process'))))
                     return;
                 if (text.length === 1) {
                     textarea.value = '';
@@ -3049,6 +3124,17 @@ var __assign = (this && this.__assign) || function () {
             function onInput(e) {
                 everyTick.trigger(e);
             }
+            if (controller.KIND_OF_MQ === 'StaticMath') {
+                controller.addTextareaEventListeners({
+                    keydown: function (evt) {
+                        var _c, _d;
+                        // The name `overrideKeystroke` matches the API for editable math,
+                        // but it is overriding nothing. It replaces nothing with something.
+                        (_d = (_c = controller.options).overrideKeystroke) === null || _d === void 0 ? void 0 : _d.call(_c, getMQKeyName(evt), evt);
+                    }
+                });
+                return { select: select };
+            }
             if (controller.options && controller.options.disableCopyPaste) {
                 controller.addTextareaEventListeners({
                     keydown: onKeydown,
@@ -3065,7 +3151,7 @@ var __assign = (this && this.__assign) || function () {
                         everyTick.trigger();
                         e.preventDefault();
                     },
-                    input: onInput,
+                    input: onInput
                 });
             }
             else {
@@ -3085,7 +3171,7 @@ var __assign = (this && this.__assign) || function () {
                         });
                     },
                     paste: onPaste,
-                    input: onInput,
+                    input: onInput
                 });
             }
             // -*- export public methods -*- //
@@ -3160,31 +3246,28 @@ var __assign = (this && this.__assign) || function () {
                     }); // none, intentional blur: #264
                     _this_1.cursor.clearSelection().endSelection();
                     _this_1.blur();
-                    _this_1.updateMathspeak();
+                    _this_1.updateMathspeak({ emptyContent: true });
                     _this_1.scrollHoriz();
                 });
                 window.addEventListener('blur', _this_1.handleWindowBlur);
             };
             _this_1.handleTextareaFocusStatic = function () {
+                if (!_this_1.cursor.selection) {
+                    _this_1.cursor.controller.selectAll();
+                }
                 _this_1.blurred = false;
             };
             _this_1.handleTextareaBlurStatic = function () {
-                if (_this_1.cursor.selection) {
-                    _this_1.cursor.selection.clear();
-                }
-                //detaching during blur explodes in WebKit
-                setTimeout(function () {
-                    domFrag(_this_1.getTextareaSpanOrThrow()).detach();
-                    _this_1.blurred = true;
-                });
+                _this_1.cursor.clearSelection();
+                _this_1.updateMathspeak({ emptyContent: true });
             };
             _this_1.handleWindowBlur = function () {
                 // blur event also fired on window, just switching
                 clearTimeout(_this_1.blurTimeout); // tabs/windows, not intentional blur
                 if (_this_1.cursor.selection)
                     _this_1.cursor.selection.domFrag().addClass('mq-blur');
-                _this_1.blur();
-                _this_1.updateMathspeak();
+                _this_1.blurWithoutResettingCursor();
+                _this_1.updateMathspeak({ emptyContent: true });
             };
             return _this_1;
         }
@@ -3202,19 +3285,22 @@ var __assign = (this && this.__assign) || function () {
             }
         };
         Controller_focusBlur.prototype.blur = function () {
-            // not directly in the textarea blur handler so as to be
-            this.cursor.hide().parent.blur(this.cursor); // synchronous with/in the same frame as
-            domFrag(this.container).removeClass('mq-focused'); // clearing/blurring selection
-            window.removeEventListener('blur', this.handleWindowBlur);
+            this.blurWithoutResettingCursor();
             if (this.options && this.options.resetCursorOnBlur) {
                 this.cursor.resetToEnd(this);
             }
+        };
+        Controller_focusBlur.prototype.blurWithoutResettingCursor = function () {
+            // not directly in the textarea blur handler so has to be
+            this.cursor.hide().parent.blur(this.cursor); // synchronous with/in the same frame as
+            domFrag(this.container).removeClass('mq-focused'); // clearing/blurring selection
+            window.removeEventListener('blur', this.handleWindowBlur);
         };
         Controller_focusBlur.prototype.addEditableFocusBlurListeners = function () {
             var ctrlr = this, cursor = ctrlr.cursor;
             this.addTextareaEventListeners({
                 focus: this.handleTextareaFocusEditable,
-                blur: this.handleTextareaBlurEditable,
+                blur: this.handleTextareaBlurEditable
             });
             ctrlr.blurred = true;
             cursor.hide().parent.blur(cursor);
@@ -3222,7 +3308,7 @@ var __assign = (this && this.__assign) || function () {
         Controller_focusBlur.prototype.addStaticFocusBlurListeners = function () {
             this.addTextareaEventListeners({
                 focus: this.handleTextareaFocusStatic,
-                blur: this.handleTextareaBlurStatic,
+                blur: this.handleTextareaBlurStatic
             });
         };
         return Controller_focusBlur;
@@ -3918,7 +4004,7 @@ var __assign = (this && this.__assign) || function () {
             var ctx = {
                 latex: '',
                 startIndex: -1,
-                endIndex: -1,
+                endIndex: -1
             };
             var selection = this.cursor.selection;
             if (selection) {
@@ -3969,7 +4055,7 @@ var __assign = (this && this.__assign) || function () {
             return {
                 latex: cleanLatex,
                 startIndex: startIndex,
-                endIndex: endIndex,
+                endIndex: endIndex
             };
         };
         Controller_latex.prototype.classifyLatexForEfficientUpdate = function (latex) {
@@ -3980,7 +4066,7 @@ var __assign = (this && this.__assign) || function () {
                 return {
                     latex: latex,
                     prefix: latex.substr(0, latex.length - matches[0].length),
-                    digits: matches[0],
+                    digits: matches[0]
                 };
             }
             return;
@@ -4244,14 +4330,11 @@ var __assign = (this && this.__assign) || function () {
                     NodeBase.getNodeOfElement(_this_1.root.domFrag().oneElement()));
                 var ownerDocument = root.domFrag().firstNode().ownerDocument;
                 var ctrlr = root.controller, cursor = ctrlr.cursor, blink = cursor.blink;
-                var textareaSpan = ctrlr.getTextareaSpanOrThrow();
-                var textarea = ctrlr.getTextareaOrThrow();
+                var textarea = ctrlr.getTextarea();
                 e.preventDefault(); // doesn't work in IE\u22648, but it's a one-line fix:
                 e.target.unselectable = true; // http://jsbin.com/yagekiji/1 // TODO - no idea what this unselectable property is
                 if (cursor.options.ignoreNextMousedown(e))
                     return;
-                else
-                    cursor.options.ignoreNextMousedown = ignoreNextMouseDownNoop;
                 // some elements should not act like internal mathquill nodes. Tokens for instance define external
                 // click / hover behaviors. So we have mathquill act like the item was never clicked. This allows
                 // us to click a token without putting focus in the mathquill.
@@ -4287,9 +4370,6 @@ var __assign = (this && this.__assign) || function () {
                         cursor.show();
                         cursor.controller.aria.queue(cursor.parent).alert();
                     }
-                    else {
-                        domFrag(textareaSpan).detach();
-                    }
                 }
                 function onDocumentMouseUp() {
                     cursor.blink = blink;
@@ -4309,12 +4389,9 @@ var __assign = (this && this.__assign) || function () {
                         cursor.clearSelection();
                         updateCursor();
                         unbindListeners();
-                    },
+                    }
                 };
                 if (ctrlr.blurred) {
-                    if (rootElement && !ctrlr.editable) {
-                        domFrag(rootElement).prepend(domFrag(textareaSpan));
-                    }
                     textarea.focus();
                     // focus call may bubble to clients, who may then write to
                     // mathquill, triggering cancelSelectionOnEdit. If that happens, we
@@ -4495,15 +4572,24 @@ var __assign = (this && this.__assign) || function () {
      * Manage the MathQuill instance's textarea
      * (as owned by the Controller)
      ********************************************/
-    Options.prototype.substituteTextarea = function () {
+    Options.prototype.substituteTextarea = function (tabbable) {
         return h('textarea', {
             autocapitalize: 'off',
             autocomplete: 'off',
             autocorrect: 'off',
             spellcheck: false,
             'x-palm-disable-ste-all': true,
+            tabindex: tabbable ? undefined : '-1'
         });
     };
+    /* A light-weight function to generate a UUID */
+    function generateUUID() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+            var r = (Math.random() * 16) | 0;
+            var v = c === 'x' ? r : (r & 0x3) | 0x8;
+            return v.toString(16);
+        });
+    }
     function defaultSubstituteKeyboardEvents(jq, controller) {
         return saneKeyboardEvents(jq[0], controller);
     }
@@ -4517,13 +4603,35 @@ var __assign = (this && this.__assign) || function () {
         }
         Controller.prototype.createTextarea = function () {
             this.textareaSpan = h('span', { class: 'mq-textarea' });
-            var textarea = this.options.substituteTextarea();
+            var tabbable = this.options.tabbable !== undefined
+                ? this.options.tabbable
+                : this.KIND_OF_MQ !== 'StaticMath';
+            var textarea = this.options.substituteTextarea(tabbable);
             if (!textarea.nodeType) {
                 throw 'substituteTextarea() must return a DOM element, got ' + textarea;
+            }
+            if (!this.options.tabbable && this.KIND_OF_MQ === 'StaticMath') {
+                // aria-hide noninteractive textarea element for static math
+                textarea.setAttribute('aria-hidden', 'true');
             }
             this.textarea = domFrag(textarea)
                 .appendTo(this.textareaSpan)
                 .oneElement();
+            if (!this.mathspeakSpan) {
+                // We want only one of these even if the textarea is replaced
+                this.mathspeakId = generateUUID();
+                this.mathspeakSpan = h('span', {
+                    class: 'mq-mathspeak',
+                    id: this.mathspeakId
+                });
+                domFrag(this.textareaSpan).prepend(domFrag(this.mathspeakSpan));
+            }
+            if (this.mathspeakId) {
+                textarea === null || textarea === void 0 ? void 0 : textarea.setAttribute('aria-labelledby', this.mathspeakId);
+            }
+            if (tabbable && this.mathspeakSpan) {
+                this.mathspeakSpan.setAttribute('aria-hidden', 'true');
+            }
             var ctrlr = this;
             ctrlr.cursor.selectionChanged = function () {
                 ctrlr.selectionChanged();
@@ -4555,6 +4663,7 @@ var __assign = (this && this.__assign) || function () {
             }
             this.selectFn(latex);
         };
+        /** Requires `this.textarea` to be initialized. */
         Controller.prototype.staticMathTextareaEvents = function () {
             var ctrlr = this;
             this.removeTextareaEventListener('cut');
@@ -4566,23 +4675,21 @@ var __assign = (this && this.__assign) || function () {
                 this.addTextareaEventListeners({
                     copy: function () {
                         ctrlr.setTextareaSelection();
-                    },
+                    }
                 });
             }
             this.addStaticFocusBlurListeners();
-            ctrlr.selectFn = function (text) {
-                var textarea = ctrlr.getTextareaOrThrow();
-                if (!(textarea instanceof HTMLTextAreaElement))
-                    return;
-                textarea.value = text;
-                if (text)
-                    textarea.select();
-            };
+            var textarea = this.getTextarea();
+            var select = saneKeyboardEvents(textarea, this).select;
+            this.selectFn = select;
+            var textareaSpan = this.getTextareaSpan();
+            domFrag(this.container).prepend(domFrag(textareaSpan));
         };
+        /** Requires `this.textarea` to be initialized. */
         Controller.prototype.editablesTextareaEvents = function () {
             var ctrlr = this;
-            var textarea = ctrlr.getTextareaOrThrow();
-            var textareaSpan = ctrlr.getTextareaSpanOrThrow();
+            var textarea = ctrlr.getTextarea();
+            var textareaSpan = ctrlr.getTextareaSpan();
             if (this.options.version < 3) {
                 var $ = this.options.assertJquery();
                 var keyboardEventsShim = this.options.substituteKeyboardEvents($(textarea), this);
@@ -4600,8 +4707,8 @@ var __assign = (this && this.__assign) || function () {
         };
         Controller.prototype.unbindEditablesEvents = function () {
             var ctrlr = this;
-            var textarea = ctrlr.getTextareaOrThrow();
-            var textareaSpan = ctrlr.getTextareaSpanOrThrow();
+            var textarea = ctrlr.getTextarea();
+            var textareaSpan = ctrlr.getTextareaSpan();
             this.selectFn = function (text) {
                 if (!(textarea instanceof HTMLTextAreaElement))
                     return;
@@ -4662,15 +4769,13 @@ var __assign = (this && this.__assign) || function () {
                 this.options.onPaste();
             }
         };
-        /** Set up for a static MQ field (i.e., create and attach the mathspeak element and initialize the focus state to blurred) */
+        /** Set up for a static MQ field (i.e., initialize the focus state to blurred) */
         Controller.prototype.setupStaticField = function () {
-            this.mathspeakSpan = h('span', { class: 'mq-mathspeak' });
-            domFrag(this.container).prepend(domFrag(this.mathspeakSpan));
             this.updateMathspeak();
             this.blurred = true;
             this.cursor.hide().parent.blur(this.cursor);
         };
-        Controller.prototype.updateMathspeak = function () {
+        Controller.prototype.updateMathspeak = function (opts) {
             var ctrlr = this;
             // If the controller's ARIA label doesn't end with a punctuation mark, add a colon by default to better separate it from mathspeak.
             var ariaLabel = ctrlr.getAriaLabel();
@@ -4678,22 +4783,14 @@ var __assign = (this && this.__assign) || function () {
                 ? ariaLabel + ':'
                 : ariaLabel;
             var mathspeak = ctrlr.root.mathspeak().trim();
-            this.aria.clear();
-            var textarea = ctrlr.getTextareaOrThrow();
-            // For static math, provide mathspeak in a visually hidden span to allow screen readers and other AT to traverse the content.
-            // For editable math, assign the mathspeak to the textarea's ARIA label (AT can use text navigation to interrogate the content).
-            // Be certain to include the mathspeak for only one of these, though, as we don't want to include outdated labels if a field's editable state changes.
-            // By design, also take careful note that the ariaPostLabel is meant to exist only for editable math (e.g. to serve as an evaluation or error message)
-            // so it is not included for static math mathspeak calculations.
-            // The mathspeakSpan should exist only for static math, so we use its presence to decide which approach to take.
+            var emptyContent = !!(opts === null || opts === void 0 ? void 0 : opts.emptyContent); // Set when the focused field has been blurred so alert text is removed when it's no longer needed.
+            this.aria.clear({ emptyContent: emptyContent });
             if (!!ctrlr.mathspeakSpan) {
-                textarea.setAttribute('aria-label', '');
                 ctrlr.mathspeakSpan.textContent = (labelWithSuffix +
                     ' ' +
-                    mathspeak).trim();
-            }
-            else {
-                textarea.setAttribute('aria-label', (labelWithSuffix + ' ' + mathspeak + ' ' + ctrlr.ariaPostLabel).trim());
+                    mathspeak +
+                    ' ' +
+                    ctrlr.ariaPostLabel).trim();
             }
         };
         return Controller;
@@ -5096,25 +5193,33 @@ var __assign = (this && this.__assign) || function () {
         function BinaryOperator(ctrlSeq, html, text, mathspeak, treatLikeSymbol) {
             var _this_1 = this;
             if (treatLikeSymbol) {
-                _this_1 = _super.call(this, ctrlSeq, ctrlSeq === '+' ?
-                    h('span', {}, [
+                _this_1 = _super.call(this, ctrlSeq, ctrlSeq === '+'
+                    ? h('span', {}, [
                         h('wbr', {}),
-                        h('span', { class: 'mq-binary-operator' }, [html || h.text(ctrlSeq || '')]),
+                        h('span', { class: 'mq-binary-operator' }, [
+                            html || h.text(ctrlSeq || ''),
+                        ]),
                         h('wbr', {}),
-                    ]) :
-                    h('span', {}, [html || h.text(ctrlSeq || '')]), undefined, mathspeak) || this;
+                    ])
+                    : h('span', {}, [html || h.text(ctrlSeq || '')]), undefined, mathspeak) || this;
             }
             else {
-                _this_1 = _super.call(this, ctrlSeq, ctrlSeq === '=' ?
-                    h('span', {}, [
+                _this_1 = _super.call(this, ctrlSeq, ctrlSeq === '='
+                    ? h('span', {}, [
                         h('wbr', {}),
                         h('span', { class: 'mq-binary-operator' }, html ? [html] : []),
                         h('wbr', {}),
-                    ]) :
-                    h('span', { class: 'mq-binary-operator' }, html ? [html] : []), text, mathspeak) || this;
+                    ])
+                    : h('span', { class: 'mq-binary-operator' }, html ? [html] : []), text, mathspeak) || this;
             }
             return _this_1;
         }
+        /**
+         * PlusMinus overrides this to be false when it looks like unary positive/negative.
+         */
+        BinaryOperator.prototype.isBinaryOperator = function () {
+            return true;
+        };
         return BinaryOperator;
     }(MQSymbol));
     function bindBinaryOperator(ctrlSeq, htmlEntity, text, mathspeak) {
@@ -5351,12 +5456,14 @@ var __assign = (this && this.__assign) || function () {
                 }
                 StaticMath.prototype.__mathquillify = function (opts, _interfaceVersion) {
                     this.config(opts);
+                    // `mathquillify` calls `createTextarea`
                     _super.prototype.mathquillify.call(this, 'mq-math-mode');
                     this.__controller.setupStaticField();
                     if (this.__options.mouseEvents) {
                         this.__controller.addMouseEventListener();
-                        this.__controller.staticMathTextareaEvents();
                     }
+                    // The textarea is initialized (`createTextarea` called) by this point.
+                    this.__controller.staticMathTextareaEvents();
                     return this;
                 };
                 StaticMath.prototype.latex = function (_latex) {
@@ -5527,7 +5634,7 @@ var __assign = (this && this.__assign) || function () {
         };
         TextBlock.prototype.html = function () {
             var out = h('span', { class: 'mq-text-mode' }, [
-                h.text(this.textContents()),
+                h.text(this.textContents())
             ]);
             this.setDOM(out);
             NodeBase.linkElementByCmdNode(out, this);
@@ -5881,15 +5988,15 @@ var __assign = (this && this.__assign) || function () {
     LatexCmds.tt = LatexCmds.texttt = makeTextBlock('\\texttt', 'Mono space font', 'span', { class: 'mq-monospace mq-text-mode' });
     LatexCmds.textsc = makeTextBlock('\\textsc', 'Variable font', 'span', {
         style: 'font-variant:small-caps',
-        class: 'mq-text-mode',
+        class: 'mq-text-mode'
     });
     LatexCmds.uppercase = makeTextBlock('\\uppercase', 'Uppercase', 'span', {
         style: 'text-transform:uppercase',
-        class: 'mq-text-mode',
+        class: 'mq-text-mode'
     });
     LatexCmds.lowercase = makeTextBlock('\\lowercase', 'Lowercase', 'span', {
         style: 'text-transform:lowercase',
-        class: 'mq-text-mode',
+        class: 'mq-text-mode'
     });
     var RootMathCommand = /** @class */ (function (_super) {
         __extends(RootMathCommand, _super);
@@ -5984,87 +6091,113 @@ var __assign = (this && this.__assign) || function () {
     /************************************
      * Symbols for Advanced Mathematics
      ***********************************/
-    LatexCmds.notin =
-        LatexCmds.cong =
-            LatexCmds.equiv =
-                LatexCmds.oplus =
-                    LatexCmds.otimes =
-                        function (latex) {
-                            return new BinaryOperator('\\' + latex + ' ', h.entityText('&' + latex + ';'));
-                        };
+    function bindSimpleBinop(latex) {
+        return bindBinaryOperator('\\' + latex + ' ', '&' + latex + ';', latex);
+    }
+    LatexCmds['\u2209'] = LatexCmds.notin = bindSimpleBinop('notin');
+    LatexCmds['\u2261'] = LatexCmds.equiv = bindSimpleBinop('equiv');
+    LatexCmds['\u2295'] = LatexCmds.oplus = bindSimpleBinop('oplus');
+    LatexCmds['\u2297'] = LatexCmds.otimes = bindSimpleBinop('otimes');
     LatexCmds['\u2217'] =
         LatexCmds.ast =
             LatexCmds.star =
                 LatexCmds.loast =
                     LatexCmds.lowast =
                         bindBinaryOperator('\\ast ', '&lowast;', 'low asterisk');
-    LatexCmds.therefor = LatexCmds.therefore = bindBinaryOperator('\\therefore ', '&there4;', 'therefore');
-    LatexCmds.cuz = LatexCmds.because = bindBinaryOperator(
-    // l33t
-    '\\because ', '&#8757;', 'because');
-    LatexCmds.prop = LatexCmds.propto = bindBinaryOperator('\\propto ', '&prop;', 'proportional to');
+    LatexCmds['\u2234'] =
+        LatexCmds.therefor =
+            LatexCmds.therefore =
+                bindBinaryOperator('\\therefore ', '&there4;', 'therefore');
+    LatexCmds['\u2235'] =
+        LatexCmds.cuz =
+            LatexCmds.because =
+                bindBinaryOperator(
+                // l33t
+                '\\because ', '&#8757;', 'because');
+    LatexCmds['\u221d'] =
+        LatexCmds.prop =
+            LatexCmds.propto =
+                bindBinaryOperator('\\propto ', '&prop;', 'proportional to');
+    // Note "\u2248" is dupliucated in basicSymbols.
     LatexCmds['\u2248'] =
         LatexCmds.asymp =
             LatexCmds.approx =
                 bindBinaryOperator('\\approx ', '&asymp;', 'approximately equal to');
-    LatexCmds.isin = LatexCmds['in'] = bindBinaryOperator('\\in ', '&isin;', 'is in');
-    LatexCmds.ni = LatexCmds.contains = bindBinaryOperator('\\ni ', '&ni;', 'is not in');
-    LatexCmds.notni =
-        LatexCmds.niton =
-            LatexCmds.notcontains =
-                LatexCmds.doesnotcontain =
-                    bindBinaryOperator('\\not\\ni ', '&#8716;', 'does not contain');
-    LatexCmds.sub = LatexCmds.subset = bindBinaryOperator('\\subset ', '&sub;', 'subset');
-    LatexCmds.sup =
-        LatexCmds.supset =
-            LatexCmds.superset =
-                bindBinaryOperator('\\supset ', '&sup;', 'superset');
-    LatexCmds.nsub =
-        LatexCmds.notsub =
-            LatexCmds.nsubset =
-                LatexCmds.notsubset =
-                    bindBinaryOperator('\\not\\subset ', '&#8836;', 'not a subset');
-    LatexCmds.nsup =
-        LatexCmds.notsup =
-            LatexCmds.nsupset =
-                LatexCmds.notsupset =
-                    LatexCmds.nsuperset =
-                        LatexCmds.notsuperset =
-                            bindBinaryOperator('\\not\\supset ', '&#8837;', 'not a superset');
-    LatexCmds.sube =
-        LatexCmds.subeq =
-            LatexCmds.subsete =
-                LatexCmds.subseteq =
-                    bindBinaryOperator('\\subseteq ', '&sube;', 'subset or equal to');
-    LatexCmds.supe =
-        LatexCmds.supeq =
-            LatexCmds.supsete =
-                LatexCmds.supseteq =
-                    LatexCmds.supersete =
-                        LatexCmds.superseteq =
-                            bindBinaryOperator('\\supseteq ', '&supe;', 'superset or equal to');
-    LatexCmds.nsube =
-        LatexCmds.nsubeq =
-            LatexCmds.notsube =
-                LatexCmds.notsubeq =
-                    LatexCmds.nsubsete =
-                        LatexCmds.nsubseteq =
-                            LatexCmds.notsubsete =
-                                LatexCmds.notsubseteq =
-                                    bindBinaryOperator('\\not\\subseteq ', '&#8840;', 'not subset or equal to');
-    LatexCmds.nsupe =
-        LatexCmds.nsupeq =
-            LatexCmds.notsupe =
-                LatexCmds.notsupeq =
-                    LatexCmds.nsupsete =
-                        LatexCmds.nsupseteq =
-                            LatexCmds.notsupsete =
-                                LatexCmds.notsupseteq =
-                                    LatexCmds.nsupersete =
-                                        LatexCmds.nsuperseteq =
-                                            LatexCmds.notsupersete =
-                                                LatexCmds.notsuperseteq =
-                                                    bindBinaryOperator('\\not\\supseteq ', '&#8841;', 'not superset or equal to');
+    LatexCmds['\u2208'] =
+        LatexCmds.isin =
+            LatexCmds['in'] =
+                bindBinaryOperator('\\in ', '&isin;', 'is in');
+    LatexCmds['\u220b'] =
+        LatexCmds.ni =
+            LatexCmds.contains =
+                bindBinaryOperator('\\ni ', '&ni;', 'contains');
+    LatexCmds['\u220c'] =
+        LatexCmds.notni =
+            LatexCmds.niton =
+                LatexCmds.notcontains =
+                    LatexCmds.doesnotcontain =
+                        bindBinaryOperator('\\not\\ni ', '&#8716;', 'does not contain');
+    LatexCmds['\u2282'] =
+        LatexCmds.sub =
+            LatexCmds.subset =
+                bindBinaryOperator('\\subset ', '&sub;', 'subset');
+    LatexCmds['\u2283'] =
+        LatexCmds.sup =
+            LatexCmds.supset =
+                LatexCmds.superset =
+                    bindBinaryOperator('\\supset ', '&sup;', 'superset');
+    LatexCmds['\u2284'] =
+        LatexCmds.nsub =
+            LatexCmds.notsub =
+                LatexCmds.nsubset =
+                    LatexCmds.notsubset =
+                        bindBinaryOperator('\\not\\subset ', '&#8836;', 'not a subset');
+    LatexCmds['\u2285'] =
+        LatexCmds.nsup =
+            LatexCmds.notsup =
+                LatexCmds.nsupset =
+                    LatexCmds.notsupset =
+                        LatexCmds.nsuperset =
+                            LatexCmds.notsuperset =
+                                bindBinaryOperator('\\not\\supset ', '&#8837;', 'not a superset');
+    LatexCmds['\u2286'] =
+        LatexCmds.sube =
+            LatexCmds.subeq =
+                LatexCmds.subsete =
+                    LatexCmds.subseteq =
+                        bindBinaryOperator('\\subseteq ', '&sube;', 'subset or equal to');
+    LatexCmds['\u2287'] =
+        LatexCmds.supe =
+            LatexCmds.supeq =
+                LatexCmds.supsete =
+                    LatexCmds.supseteq =
+                        LatexCmds.supersete =
+                            LatexCmds.superseteq =
+                                bindBinaryOperator('\\supseteq ', '&supe;', 'superset or equal to');
+    LatexCmds['\u228a'] =
+        LatexCmds.nsube =
+            LatexCmds.nsubeq =
+                LatexCmds.notsube =
+                    LatexCmds.notsubeq =
+                        LatexCmds.nsubsete =
+                            LatexCmds.nsubseteq =
+                                LatexCmds.notsubsete =
+                                    LatexCmds.notsubseteq =
+                                        bindBinaryOperator('\\not\\subseteq ', '&#8840;', 'not subset or equal to');
+    LatexCmds['\u228b'] =
+        LatexCmds.nsupe =
+            LatexCmds.nsupeq =
+                LatexCmds.notsupe =
+                    LatexCmds.notsupeq =
+                        LatexCmds.nsupsete =
+                            LatexCmds.nsupseteq =
+                                LatexCmds.notsupsete =
+                                    LatexCmds.notsupseteq =
+                                        LatexCmds.nsupersete =
+                                            LatexCmds.nsuperseteq =
+                                                LatexCmds.notsupersete =
+                                                    LatexCmds.notsuperseteq =
+                                                        bindBinaryOperator('\\not\\supseteq ', '&#8841;', 'not superset or equal to');
     //the canonical sets of numbers
     LatexCmds.mathbb = /** @class */ (function (_super) {
         __extends(class_3, _super);
@@ -6098,44 +6231,51 @@ var __assign = (this && this.__assign) || function () {
         };
         return class_3;
     }(MathCommand));
-    LatexCmds.N =
-        LatexCmds.naturals =
-            LatexCmds.Naturals =
-                bindVanillaSymbol('\\mathbb{N}', '&#8469;', 'naturals');
-    LatexCmds.P =
-        LatexCmds.primes =
-            LatexCmds.Primes =
-                LatexCmds.projective =
-                    LatexCmds.Projective =
-                        LatexCmds.probability =
-                            LatexCmds.Probability =
-                                bindVanillaSymbol('\\mathbb{P}', '&#8473;', 'P');
-    LatexCmds.Z =
-        LatexCmds.integers =
-            LatexCmds.Integers =
-                bindVanillaSymbol('\\mathbb{Z}', '&#8484;', 'integers');
-    LatexCmds.Q =
-        LatexCmds.rationals =
-            LatexCmds.Rationals =
-                bindVanillaSymbol('\\mathbb{Q}', '&#8474;', 'rationals');
-    LatexCmds.R =
-        LatexCmds.reals =
-            LatexCmds.Reals =
-                bindVanillaSymbol('\\mathbb{R}', '&#8477;', 'reals');
-    LatexCmds.C =
-        LatexCmds.complex =
-            LatexCmds.Complex =
-                LatexCmds.complexes =
-                    LatexCmds.Complexes =
-                        LatexCmds.complexplane =
-                            LatexCmds.Complexplane =
-                                LatexCmds.ComplexPlane =
-                                    bindVanillaSymbol('\\mathbb{C}', '&#8450;', 'complexes');
-    LatexCmds.H =
-        LatexCmds.Hamiltonian =
-            LatexCmds.quaternions =
-                LatexCmds.Quaternions =
-                    bindVanillaSymbol('\\mathbb{H}', '&#8461;', 'quaternions');
+    LatexCmds['\u2115'] =
+        LatexCmds.N =
+            LatexCmds.naturals =
+                LatexCmds.Naturals =
+                    bindVanillaSymbol('\\mathbb{N}', '&#8469;', 'naturals');
+    LatexCmds['\u2119'] =
+        LatexCmds.P =
+            LatexCmds.primes =
+                LatexCmds.Primes =
+                    LatexCmds.projective =
+                        LatexCmds.Projective =
+                            LatexCmds.probability =
+                                LatexCmds.Probability =
+                                    bindVanillaSymbol('\\mathbb{P}', '&#8473;', 'P');
+    LatexCmds['\u2124'] =
+        LatexCmds.Z =
+            LatexCmds.integers =
+                LatexCmds.Integers =
+                    bindVanillaSymbol('\\mathbb{Z}', '&#8484;', 'integers');
+    LatexCmds['\u211a'] =
+        LatexCmds.Q =
+            LatexCmds.rationals =
+                LatexCmds.Rationals =
+                    bindVanillaSymbol('\\mathbb{Q}', '&#8474;', 'rationals');
+    LatexCmds['\u211d'] =
+        LatexCmds.R =
+            LatexCmds.reals =
+                LatexCmds.Reals =
+                    bindVanillaSymbol('\\mathbb{R}', '&#8477;', 'reals');
+    LatexCmds['\u2102'] =
+        LatexCmds.C =
+            LatexCmds.complex =
+                LatexCmds.Complex =
+                    LatexCmds.complexes =
+                        LatexCmds.Complexes =
+                            LatexCmds.complexplane =
+                                LatexCmds.Complexplane =
+                                    LatexCmds.ComplexPlane =
+                                        bindVanillaSymbol('\\mathbb{C}', '&#8450;', 'complexes');
+    LatexCmds['\u210d'] =
+        LatexCmds.H =
+            LatexCmds.Hamiltonian =
+                LatexCmds.quaternions =
+                    LatexCmds.Quaternions =
+                        bindVanillaSymbol('\\mathbb{H}', '&#8461;', 'quaternions');
     //spacing
     LatexCmds.quad = LatexCmds.emsp = bindVanillaSymbol('\\quad ', '    ', '4 spaces');
     LatexCmds.qquad = bindVanillaSymbol('\\qquad ', '        ', '8 spaces');
@@ -6150,89 +6290,91 @@ var __assign = (this && this.__assign) || function () {
       return MQSymbol('\\! ','<span style="margin-right:-.2em"></span>', 'exclamation point');
     */
     //binary operators
-    LatexCmds.diamond = bindVanillaSymbol('\\diamond ', '&#9671;', 'diamond');
+    LatexCmds['\u25c7'] = LatexCmds.diamond = bindVanillaSymbol('\\diamond ', '&#9671;', 'diamond');
     LatexCmds.bigtriangleup = bindVanillaSymbol('\\bigtriangleup ', '&#9651;', 'triangle up');
-    LatexCmds.ominus = bindVanillaSymbol('\\ominus ', '&#8854;', 'o minus');
-    LatexCmds.uplus = bindVanillaSymbol('\\uplus ', '&#8846;', 'disjoint union');
+    LatexCmds['\u2296'] = LatexCmds.ominus = bindVanillaSymbol('\\ominus ', '&#8854;', 'o minus');
+    LatexCmds['\u228e'] = LatexCmds.uplus = bindVanillaSymbol('\\uplus ', '&#8846;', 'disjoint union');
     LatexCmds.bigtriangledown = bindVanillaSymbol('\\bigtriangledown ', '&#9661;', 'triangle down');
-    LatexCmds.sqcap = bindVanillaSymbol('\\sqcap ', '&#8851;', 'greatest lower bound');
-    LatexCmds.triangleleft = bindVanillaSymbol('\\triangleleft ', '&#8882;', 'triangle left');
-    LatexCmds.sqcup = bindVanillaSymbol('\\sqcup ', '&#8852;', 'least upper bound');
-    LatexCmds.triangleright = bindVanillaSymbol('\\triangleright ', '&#8883;', 'triangle right');
+    LatexCmds['\u2293'] = LatexCmds.sqcap = bindVanillaSymbol('\\sqcap ', '&#8851;', 'greatest lower bound');
+    LatexCmds['\u22b2'] = LatexCmds.triangleleft = bindVanillaSymbol('\\triangleleft ', '&#8882;', 'triangle left');
+    LatexCmds['\u2294'] = LatexCmds.sqcup = bindVanillaSymbol('\\sqcup ', '&#8852;', 'least upper bound');
+    LatexCmds['\u22b3'] = LatexCmds.triangleright = bindVanillaSymbol('\\triangleright ', '&#8883;', 'triangle right');
     //circledot is not a not real LaTex command see https://github.com/mathquill/mathquill/pull/552 for more details
-    LatexCmds.odot = LatexCmds.circledot = bindVanillaSymbol('\\odot ', '&#8857;', 'circle dot');
-    LatexCmds.bigcirc = bindVanillaSymbol('\\bigcirc ', '&#9711;', 'circle');
-    LatexCmds.dagger = bindVanillaSymbol('\\dagger ', '&#0134;', 'dagger');
-    LatexCmds.ddagger = bindVanillaSymbol('\\ddagger ', '&#135;', 'big dagger');
-    LatexCmds.wr = bindVanillaSymbol('\\wr ', '&#8768;', 'wreath');
-    LatexCmds.amalg = bindVanillaSymbol('\\amalg ', '&#8720;', 'amalgam');
+    LatexCmds['\u2299'] =
+        LatexCmds.odot =
+            LatexCmds.circledot =
+                bindVanillaSymbol('\\odot ', '&#8857;', 'circle dot');
+    LatexCmds['\u2020'] = LatexCmds.dagger = bindVanillaSymbol('\\dagger ', '&#0134;', 'dagger');
+    LatexCmds['\u2021'] = LatexCmds.ddagger = bindVanillaSymbol('\\ddagger ', '&#135;', 'big dagger');
+    LatexCmds['\u2240'] = LatexCmds.wr = bindVanillaSymbol('\\wr ', '&#8768;', 'wreath');
+    LatexCmds['\u2210'] = LatexCmds.amalg = bindVanillaSymbol('\\amalg ', '&#8720;', 'amalgam');
     //relationship symbols
-    LatexCmds.models = bindVanillaSymbol('\\models ', '&#8872;', 'models');
-    LatexCmds.prec = bindVanillaSymbol('\\prec ', '&#8826;', 'precedes');
-    LatexCmds.succ = bindVanillaSymbol('\\succ ', '&#8827;', 'succeeds');
-    LatexCmds.preceq = bindVanillaSymbol('\\preceq ', '&#8828;', 'precedes or equals');
-    LatexCmds.succeq = bindVanillaSymbol('\\succeq ', '&#8829;', 'succeeds or equals');
-    LatexCmds.simeq = bindVanillaSymbol('\\simeq ', '&#8771;', 'similar or equal to');
-    LatexCmds.mid = bindVanillaSymbol('\\mid ', '&#8739;', 'divides');
-    LatexCmds.ll = bindVanillaSymbol('\\ll ', '&#8810;', 'll');
-    LatexCmds.gg = bindVanillaSymbol('\\gg ', '&#8811;', 'gg');
+    LatexCmds['\u22a8'] = LatexCmds.models = bindVanillaSymbol('\\models ', '&#8872;', 'models');
+    LatexCmds['\u227a'] = LatexCmds.prec = bindVanillaSymbol('\\prec ', '&#8826;', 'precedes');
+    LatexCmds['\u227b'] = LatexCmds.succ = bindVanillaSymbol('\\succ ', '&#8827;', 'succeeds');
+    LatexCmds['\u227c'] = LatexCmds.preceq = bindVanillaSymbol('\\preceq ', '&#8828;', 'precedes or equals');
+    LatexCmds['\u227d'] = LatexCmds.succeq = bindVanillaSymbol('\\succeq ', '&#8829;', 'succeeds or equals');
+    LatexCmds['\u2243'] = LatexCmds.simeq = bindVanillaSymbol('\\simeq ', '&#8771;', 'similar or equal to');
+    LatexCmds['\u2223'] = LatexCmds.mid = bindVanillaSymbol('\\mid ', '&#8739;', 'divides');
+    LatexCmds['\u226a'] = LatexCmds.ll = bindVanillaSymbol('\\ll ', '&#8810;', 'll');
+    LatexCmds['\u226b'] = LatexCmds.gg = bindVanillaSymbol('\\gg ', '&#8811;', 'gg');
     LatexCmds.parallel = bindVanillaSymbol('\\parallel ', '&#8741;', 'parallel with');
     LatexCmds.nparallel = bindVanillaSymbol('\\nparallel ', '&#8742;', 'not parallel with');
-    LatexCmds.bowtie = bindVanillaSymbol('\\bowtie ', '&#8904;', 'bowtie');
-    LatexCmds.sqsubset = bindVanillaSymbol('\\sqsubset ', '&#8847;', 'square subset');
-    LatexCmds.sqsupset = bindVanillaSymbol('\\sqsupset ', '&#8848;', 'square superset');
-    LatexCmds.smile = bindVanillaSymbol('\\smile ', '&#8995;', 'smile');
-    LatexCmds.sqsubseteq = bindVanillaSymbol('\\sqsubseteq ', '&#8849;', 'square subset or equal to');
-    LatexCmds.sqsupseteq = bindVanillaSymbol('\\sqsupseteq ', '&#8850;', 'square superset or equal to');
-    LatexCmds.doteq = bindVanillaSymbol('\\doteq ', '&#8784;', 'dotted equals');
-    LatexCmds.frown = bindVanillaSymbol('\\frown ', '&#8994;', 'frown');
-    LatexCmds.vdash = bindVanillaSymbol('\\vdash ', '&#8870;', 'v dash');
-    LatexCmds.dashv = bindVanillaSymbol('\\dashv ', '&#8867;', 'dash v');
-    LatexCmds.nless = bindVanillaSymbol('\\nless ', '&#8814;', 'not less than');
-    LatexCmds.ngtr = bindVanillaSymbol('\\ngtr ', '&#8815;', 'not greater than');
+    LatexCmds['\u22c8'] = LatexCmds.bowtie = bindVanillaSymbol('\\bowtie ', '&#8904;', 'bowtie');
+    LatexCmds['\u228f'] = LatexCmds.sqsubset = bindVanillaSymbol('\\sqsubset ', '&#8847;', 'square subset');
+    LatexCmds['\u2290'] = LatexCmds.sqsupset = bindVanillaSymbol('\\sqsupset ', '&#8848;', 'square superset');
+    LatexCmds['\u2323'] = LatexCmds.smile = bindVanillaSymbol('\\smile ', '&#8995;', 'smile');
+    LatexCmds['\u2291'] = LatexCmds.sqsubseteq = bindVanillaSymbol('\\sqsubseteq ', '&#8849;', 'square subset or equal to');
+    LatexCmds['\u2292'] = LatexCmds.sqsupseteq = bindVanillaSymbol('\\sqsupseteq ', '&#8850;', 'square superset or equal to');
+    LatexCmds['\u2250'] = LatexCmds.doteq = bindVanillaSymbol('\\doteq ', '&#8784;', 'dotted equals');
+    LatexCmds['\u2322'] = LatexCmds.frown = bindVanillaSymbol('\\frown ', '&#8994;', 'frown');
+    LatexCmds['\u22a6'] = LatexCmds.vdash = bindVanillaSymbol('\\vdash ', '&#8870;', 'v dash');
+    LatexCmds['\u22a3'] = LatexCmds.dashv = bindVanillaSymbol('\\dashv ', '&#8867;', 'dash v');
+    LatexCmds['\u226e'] = LatexCmds.nless = bindVanillaSymbol('\\nless ', '&#8814;', 'not less than');
+    LatexCmds['\u226f'] = LatexCmds.ngtr = bindVanillaSymbol('\\ngtr ', '&#8815;', 'not greater than');
     //arrows
     LatexCmds.longleftarrow = bindVanillaSymbol('\\longleftarrow ', '&#8592;', 'left arrow');
     LatexCmds.longrightarrow = bindVanillaSymbol('\\longrightarrow ', '&#8594;', 'right arrow');
     LatexCmds.Longleftarrow = bindVanillaSymbol('\\Longleftarrow ', '&#8656;', 'left arrow');
     LatexCmds.Longrightarrow = bindVanillaSymbol('\\Longrightarrow ', '&#8658;', 'right arrow');
     LatexCmds.longleftrightarrow = bindVanillaSymbol('\\longleftrightarrow ', '&#8596;', 'left and right arrow');
-    LatexCmds.updownarrow = bindVanillaSymbol('\\updownarrow ', '&#8597;', 'up and down arrow');
+    LatexCmds['\u2195'] = LatexCmds.updownarrow = bindVanillaSymbol('\\updownarrow ', '&#8597;', 'up and down arrow');
     LatexCmds.Longleftrightarrow = bindVanillaSymbol('\\Longleftrightarrow ', '&#8660;', 'left and right arrow');
-    LatexCmds.Updownarrow = bindVanillaSymbol('\\Updownarrow ', '&#8661;', 'up and down arrow');
-    LatexCmds.mapsto = bindVanillaSymbol('\\mapsto ', '&#8614;', 'maps to');
-    LatexCmds.nearrow = bindVanillaSymbol('\\nearrow ', '&#8599;', 'northeast arrow');
-    LatexCmds.hookleftarrow = bindVanillaSymbol('\\hookleftarrow ', '&#8617;', 'hook left arrow');
-    LatexCmds.hookrightarrow = bindVanillaSymbol('\\hookrightarrow ', '&#8618;', 'hook right arrow');
-    LatexCmds.searrow = bindVanillaSymbol('\\searrow ', '&#8600;', 'southeast arrow');
-    LatexCmds.leftharpoonup = bindVanillaSymbol('\\leftharpoonup ', '&#8636;', 'left harpoon up');
-    LatexCmds.rightharpoonup = bindVanillaSymbol('\\rightharpoonup ', '&#8640;', 'right harpoon up');
-    LatexCmds.swarrow = bindVanillaSymbol('\\swarrow ', '&#8601;', 'southwest arrow');
-    LatexCmds.leftharpoondown = bindVanillaSymbol('\\leftharpoondown ', '&#8637;', 'left harpoon down');
-    LatexCmds.rightharpoondown = bindVanillaSymbol('\\rightharpoondown ', '&#8641;', 'right harpoon down');
-    LatexCmds.nwarrow = bindVanillaSymbol('\\nwarrow ', '&#8598;', 'northwest arrow');
+    LatexCmds['\u21d5'] = LatexCmds.Updownarrow = bindVanillaSymbol('\\Updownarrow ', '&#8661;', 'up and down arrow');
+    LatexCmds['\u21a6'] = LatexCmds.mapsto = bindVanillaSymbol('\\mapsto ', '&#8614;', 'maps to');
+    LatexCmds['\u2197'] = LatexCmds.nearrow = bindVanillaSymbol('\\nearrow ', '&#8599;', 'northeast arrow');
+    LatexCmds['\u21a9'] = LatexCmds.hookleftarrow = bindVanillaSymbol('\\hookleftarrow ', '&#8617;', 'hook left arrow');
+    LatexCmds['\u21aa'] = LatexCmds.hookrightarrow = bindVanillaSymbol('\\hookrightarrow ', '&#8618;', 'hook right arrow');
+    LatexCmds['\u2198'] = LatexCmds.searrow = bindVanillaSymbol('\\searrow ', '&#8600;', 'southeast arrow');
+    LatexCmds['\u21bc'] = LatexCmds.leftharpoonup = bindVanillaSymbol('\\leftharpoonup ', '&#8636;', 'left harpoon up');
+    LatexCmds['\u21c0'] = LatexCmds.rightharpoonup = bindVanillaSymbol('\\rightharpoonup ', '&#8640;', 'right harpoon up');
+    LatexCmds['\u2199'] = LatexCmds.swarrow = bindVanillaSymbol('\\swarrow ', '&#8601;', 'southwest arrow');
+    LatexCmds['\u21bd'] = LatexCmds.leftharpoondown = bindVanillaSymbol('\\leftharpoondown ', '&#8637;', 'left harpoon down');
+    LatexCmds['\u21c1'] = LatexCmds.rightharpoondown = bindVanillaSymbol('\\rightharpoondown ', '&#8641;', 'right harpoon down');
+    LatexCmds['\u2196'] = LatexCmds.nwarrow = bindVanillaSymbol('\\nwarrow ', '&#8598;', 'northwest arrow');
     //Misc
+    // \dots has the unicode for \ldots
     LatexCmds.ldots = bindVanillaSymbol('\\ldots ', '&#8230;', 'l dots');
-    LatexCmds.cdots = bindVanillaSymbol('\\cdots ', '&#8943;', 'c dots');
-    LatexCmds.vdots = bindVanillaSymbol('\\vdots ', '&#8942;', 'v dots');
-    LatexCmds.ddots = bindVanillaSymbol('\\ddots ', '&#8945;', 'd dots');
+    LatexCmds['\u22ef'] = LatexCmds.cdots = bindVanillaSymbol('\\cdots ', '&#8943;', 'c dots');
+    LatexCmds['\u22ee'] = LatexCmds.vdots = bindVanillaSymbol('\\vdots ', '&#8942;', 'v dots');
+    LatexCmds['\u22f1'] = LatexCmds.ddots = bindVanillaSymbol('\\ddots ', '&#8945;', 'd dots');
+    // LatexCmds['\u221a'] is defined in basicSymbols
     LatexCmds.surd = bindVanillaSymbol('\\surd ', '&#8730;', 'unresolved root');
-    LatexCmds.triangle = bindVanillaSymbol('\\triangle ', '&#9651;', 'triangle');
-    LatexCmds.ell = bindVanillaSymbol('\\ell ', '&#8467;', 'ell');
-    LatexCmds.top = bindVanillaSymbol('\\top ', '&#8868;', 'top');
-    LatexCmds.flat = bindVanillaSymbol('\\flat ', '&#9837;', 'flat');
-    LatexCmds.natural = bindVanillaSymbol('\\natural ', '&#9838;', 'natural');
-    LatexCmds.sharp = bindVanillaSymbol('\\sharp ', '&#9839;', 'sharp');
-    LatexCmds.wp = bindVanillaSymbol('\\wp ', '&#8472;', 'wp');
-    LatexCmds.bot = bindVanillaSymbol('\\bot ', '&#8869;', 'bot');
-    LatexCmds.clubsuit = bindVanillaSymbol('\\clubsuit ', '&#9827;', 'club suit');
-    LatexCmds.diamondsuit = bindVanillaSymbol('\\diamondsuit ', '&#9826;', 'diamond suit');
-    LatexCmds.heartsuit = bindVanillaSymbol('\\heartsuit ', '&#9825;', 'heart suit');
-    LatexCmds.spadesuit = bindVanillaSymbol('\\spadesuit ', '&#9824;', 'spade suit');
-    //not real LaTex command see https://github.com/mathquill/mathquill/pull/552 for more details
-    LatexCmds.parallelogram = bindVanillaSymbol('\\parallelogram ', '&#9649;', 'parallelogram');
-    LatexCmds.square = bindVanillaSymbol('\\square ', '&#11036;', 'square');
+    LatexCmds['\u2113'] = LatexCmds.ell = bindVanillaSymbol('\\ell ', '&#8467;', 'ell');
+    LatexCmds['\u22a4'] = LatexCmds.top = bindVanillaSymbol('\\top ', '&#8868;', 'top');
+    LatexCmds['\u266d'] = LatexCmds.flat = bindVanillaSymbol('\\flat ', '&#9837;', 'flat');
+    LatexCmds['\u266e'] = LatexCmds.natural = bindVanillaSymbol('\\natural ', '&#9838;', 'natural');
+    LatexCmds['\u266f'] = LatexCmds.sharp = bindVanillaSymbol('\\sharp ', '&#9839;', 'sharp');
+    LatexCmds['\u2118'] = LatexCmds.wp = bindVanillaSymbol('\\wp ', '&#8472;', 'wp');
+    LatexCmds['\u22a5'] = LatexCmds.bot = bindVanillaSymbol('\\bot ', '&#8869;', 'bot');
+    LatexCmds['\u2663'] = LatexCmds.clubsuit = bindVanillaSymbol('\\clubsuit ', '&#9827;', 'club suit');
+    LatexCmds['\u2662'] = LatexCmds.diamondsuit = bindVanillaSymbol('\\diamondsuit ', '&#9826;', 'diamond suit');
+    LatexCmds['\u2661'] = LatexCmds.heartsuit = bindVanillaSymbol('\\heartsuit ', '&#9825;', 'heart suit');
+    LatexCmds['\u2660'] = LatexCmds.spadesuit = bindVanillaSymbol('\\spadesuit ', '&#9824;', 'spade suit');
+    LatexCmds['\u2b1c'] = LatexCmds.square = bindVanillaSymbol('\\square ', '&#11036;', 'square');
     //variable-sized
-    LatexCmds.oint = bindVanillaSymbol('\\oint ', '&#8750;', 'o int');
+    // These are not actually variable-sized, and bigX (bigcap...) is the same as X (cap...)
+    LatexCmds['\u222e'] = LatexCmds.oint = bindVanillaSymbol('\\oint ', '&#8750;', 'o int');
     LatexCmds.bigcap = bindVanillaSymbol('\\bigcap ', '&#8745;', 'big cap');
     LatexCmds.bigcup = bindVanillaSymbol('\\bigcup ', '&#8746;', 'big cup');
     LatexCmds.bigsqcup = bindVanillaSymbol('\\bigsqcup ', '&#8852;', 'big square cup');
@@ -6243,10 +6385,10 @@ var __assign = (this && this.__assign) || function () {
     LatexCmds.bigoplus = bindVanillaSymbol('\\bigoplus ', '&#8853;', 'big o plus');
     LatexCmds.biguplus = bindVanillaSymbol('\\biguplus ', '&#8846;', 'big u plus');
     //delimiters
-    LatexCmds.lfloor = bindVanillaSymbol('\\lfloor ', '&#8970;', 'left floor');
-    LatexCmds.rfloor = bindVanillaSymbol('\\rfloor ', '&#8971;', 'right floor');
-    LatexCmds.lceil = bindVanillaSymbol('\\lceil ', '&#8968;', 'left ceiling');
-    LatexCmds.rceil = bindVanillaSymbol('\\rceil ', '&#8969;', 'right ceiling');
+    LatexCmds['\u230a'] = LatexCmds.lfloor = bindVanillaSymbol('\\lfloor ', '&#8970;', 'left floor');
+    LatexCmds['\u230b'] = LatexCmds.rfloor = bindVanillaSymbol('\\rfloor ', '&#8971;', 'right floor');
+    LatexCmds['\u2308'] = LatexCmds.lceil = bindVanillaSymbol('\\lceil ', '&#8968;', 'left ceiling');
+    LatexCmds['\u2309'] = LatexCmds.rceil = bindVanillaSymbol('\\rceil ', '&#8969;', 'right ceiling');
     LatexCmds.opencurlybrace = LatexCmds.lbrace = bindVanillaSymbol('\\lbrace ', '{', 'left brace');
     LatexCmds.closecurlybrace = LatexCmds.rbrace = bindVanillaSymbol('\\rbrace ', '}', 'right brace');
     LatexCmds.lbrack = bindVanillaSymbol('[', 'left bracket');
@@ -6255,18 +6397,29 @@ var __assign = (this && this.__assign) || function () {
     LatexCmds.slash = bindVanillaSymbol('/', 'slash');
     LatexCmds.vert = bindVanillaSymbol('|', 'vertical bar');
     LatexCmds.perp = LatexCmds.perpendicular = bindVanillaSymbol('\\perp ', '&perp;', 'perpendicular');
-    LatexCmds.nabla = LatexCmds.del = bindVanillaSymbol('\\nabla ', '&nabla;');
-    LatexCmds.hbar = bindVanillaSymbol('\\hbar ', '&#8463;', 'horizontal bar');
-    LatexCmds.AA =
-        LatexCmds.Angstrom =
-            LatexCmds.angstrom =
-                bindVanillaSymbol('\\text\\AA ', '&#8491;', 'AA');
-    LatexCmds.ring =
-        LatexCmds.circ =
-            LatexCmds.circle =
-                bindVanillaSymbol('\\circ ', '&#8728;', 'circle');
-    LatexCmds.bull = LatexCmds.bullet = bindVanillaSymbol('\\bullet ', '&bull;', 'bullet');
-    LatexCmds.setminus = LatexCmds.smallsetminus = bindVanillaSymbol('\\setminus ', '&#8726;', 'set minus');
+    LatexCmds['\u2207'] =
+        LatexCmds.nabla =
+            LatexCmds.del =
+                bindVanillaSymbol('\\nabla ', '&nabla;');
+    LatexCmds['\u210f'] = LatexCmds.hbar = bindVanillaSymbol('\\hbar ', '&#8463;', 'horizontal bar');
+    LatexCmds['\u212b'] =
+        LatexCmds.AA =
+            LatexCmds.Angstrom =
+                LatexCmds.angstrom =
+                    bindVanillaSymbol('\\text\\AA ', '&#8491;', 'AA');
+    LatexCmds['\u2218'] =
+        LatexCmds.ring =
+            LatexCmds.circ =
+                LatexCmds.circle =
+                    bindVanillaSymbol('\\circ ', '&#8728;', 'circle');
+    LatexCmds['\u2022'] =
+        LatexCmds.bull =
+            LatexCmds.bullet =
+                bindVanillaSymbol('\\bullet ', '&bull;', 'bullet');
+    LatexCmds['\u2216'] =
+        LatexCmds.setminus =
+            LatexCmds.smallsetminus =
+                bindVanillaSymbol('\\setminus ', '&#8726;', 'set minus');
     LatexCmds.not = //bind(MQSymbol,'\\not ','<span class="not">/</span>', 'not');
         LatexCmds['\u00ac'] =
             LatexCmds.neg =
@@ -6278,34 +6431,51 @@ var __assign = (this && this.__assign) || function () {
                     LatexCmds.ellipsis =
                         LatexCmds.hellipsis =
                             bindVanillaSymbol('\\dots ', '&hellip;', 'ellipsis');
-    LatexCmds.converges =
-        LatexCmds.darr =
-            LatexCmds.dnarr =
-                LatexCmds.dnarrow =
-                    LatexCmds.downarrow =
-                        bindVanillaSymbol('\\downarrow ', '&darr;', 'converges with');
-    LatexCmds.dArr =
-        LatexCmds.dnArr =
-            LatexCmds.dnArrow =
-                LatexCmds.Downarrow =
-                    bindVanillaSymbol('\\Downarrow ', '&dArr;', 'down arrow');
-    LatexCmds.diverges =
-        LatexCmds.uarr =
-            LatexCmds.uparrow =
-                bindVanillaSymbol('\\uparrow ', '&uarr;', 'diverges from');
-    LatexCmds.uArr = LatexCmds.Uparrow = bindVanillaSymbol('\\Uparrow ', '&uArr;', 'up arrow');
+    LatexCmds['\u2193'] =
+        LatexCmds.converges =
+            LatexCmds.darr =
+                LatexCmds.dnarr =
+                    LatexCmds.dnarrow =
+                        LatexCmds.downarrow =
+                            bindVanillaSymbol('\\downarrow ', '&darr;', 'converges with');
+    LatexCmds['\u21d3'] =
+        LatexCmds.dArr =
+            LatexCmds.dnArr =
+                LatexCmds.dnArrow =
+                    LatexCmds.Downarrow =
+                        bindVanillaSymbol('\\Downarrow ', '&dArr;', 'down arrow');
+    LatexCmds['\u2191'] =
+        LatexCmds.diverges =
+            LatexCmds.uarr =
+                LatexCmds.uparrow =
+                    bindVanillaSymbol('\\uparrow ', '&uarr;', 'diverges from');
+    LatexCmds['\u21d1'] =
+        LatexCmds.uArr =
+            LatexCmds.Uparrow =
+                bindVanillaSymbol('\\Uparrow ', '&uArr;', 'up arrow');
     LatexCmds.rarr = LatexCmds.rightarrow = bindVanillaSymbol('\\rightarrow ', '&rarr;', 'right arrow');
     LatexCmds.implies = bindBinaryOperator('\\Rightarrow ', '&rArr;', 'implies');
-    LatexCmds.rArr = LatexCmds.Rightarrow = bindVanillaSymbol('\\Rightarrow ', '&rArr;', 'right arrow');
+    LatexCmds['\u21d2'] =
+        LatexCmds.rArr =
+            LatexCmds.Rightarrow =
+                bindVanillaSymbol('\\Rightarrow ', '&rArr;', 'right arrow');
     LatexCmds.gets = bindBinaryOperator('\\gets ', '&larr;', 'gets');
-    LatexCmds.larr = LatexCmds.leftarrow = bindVanillaSymbol('\\leftarrow ', '&larr;', 'left arrow');
+    LatexCmds['\u2190'] =
+        LatexCmds.larr =
+            LatexCmds.leftarrow =
+                bindVanillaSymbol('\\leftarrow ', '&larr;', 'left arrow');
     LatexCmds.impliedby = bindBinaryOperator('\\Leftarrow ', '&lArr;', 'implied by');
-    LatexCmds.lArr = LatexCmds.Leftarrow = bindVanillaSymbol('\\Leftarrow ', '&lArr;', 'left arrow');
-    LatexCmds.harr =
-        LatexCmds.lrarr =
-            LatexCmds.leftrightarrow =
-                bindVanillaSymbol('\\leftrightarrow ', '&harr;', 'left and right arrow');
+    LatexCmds['\u21d0'] =
+        LatexCmds.lArr =
+            LatexCmds.Leftarrow =
+                bindVanillaSymbol('\\Leftarrow ', '&lArr;', 'left arrow');
+    LatexCmds['\u2194'] =
+        LatexCmds.harr =
+            LatexCmds.lrarr =
+                LatexCmds.leftrightarrow =
+                    bindVanillaSymbol('\\leftrightarrow ', '&harr;', 'left and right arrow');
     LatexCmds.iff = bindBinaryOperator('\\Leftrightarrow ', '&hArr;', 'if and only if');
+    LatexCmds['\u21d4'];
     LatexCmds.hArr =
         LatexCmds.lrArr =
             LatexCmds.Leftrightarrow =
@@ -6321,48 +6491,62 @@ var __assign = (this && this.__assign) || function () {
                     LatexCmds.imaginary =
                         LatexCmds.Imaginary =
                             bindVanillaSymbol('\\Im ', '&image;', 'imaginary');
-    LatexCmds.part = LatexCmds.partial = bindVanillaSymbol('\\partial ', '&part;', 'partial');
-    LatexCmds.pounds = bindVanillaSymbol('\\pounds ', '&pound;');
-    LatexCmds.alef =
-        LatexCmds.alefsym =
-            LatexCmds.aleph =
-                LatexCmds.alephsym =
-                    bindVanillaSymbol('\\aleph ', '&alefsym;', 'alef sym');
-    LatexCmds.xist = //LOL
-        LatexCmds.xists =
-            LatexCmds.exist =
-                LatexCmds.exists =
-                    bindVanillaSymbol('\\exists ', '&exist;', 'there exists at least 1');
-    LatexCmds.nexists = LatexCmds.nexist = bindVanillaSymbol('\\nexists ', '&#8708;', 'there is no');
-    LatexCmds.and =
-        LatexCmds.land =
-            LatexCmds.wedge =
-                bindBinaryOperator('\\wedge ', '&and;', 'and');
-    LatexCmds.or =
-        LatexCmds.lor =
-            LatexCmds.vee =
-                bindBinaryOperator('\\vee ', '&or;', 'or');
-    LatexCmds.o =
-        LatexCmds.O =
-            LatexCmds.empty =
-                LatexCmds.emptyset =
-                    LatexCmds.oslash =
-                        LatexCmds.Oslash =
-                            LatexCmds.nothing =
-                                LatexCmds.varnothing =
-                                    bindBinaryOperator('\\varnothing ', '&empty;', 'nothing');
-    LatexCmds.cup = LatexCmds.union = bindBinaryOperator('\\cup ', '&cup;', 'union');
-    LatexCmds.cap =
-        LatexCmds.intersect =
-            LatexCmds.intersection =
-                bindBinaryOperator('\\cap ', '&cap;', 'intersection');
-    // FIXME: the correct LaTeX would be ^\circ but we can't parse that
-    LatexCmds.deg = LatexCmds.degree = bindVanillaSymbol('\\degree ', '&deg;', 'degrees');
-    LatexCmds.ang = LatexCmds.angle = bindVanillaSymbol('\\angle ', '&ang;', 'angle');
-    LatexCmds.measuredangle = bindVanillaSymbol('\\measuredangle ', '&#8737;', 'measured angle');
+    LatexCmds['\u2202'] =
+        LatexCmds.part =
+            LatexCmds.partial =
+                bindVanillaSymbol('\\partial ', '&part;', 'partial');
+    LatexCmds['\u00a3'] = LatexCmds.pounds = bindVanillaSymbol('\\pounds ', '&pound;');
+    LatexCmds['\u2135'] =
+        LatexCmds.alef =
+            LatexCmds.alefsym =
+                LatexCmds.aleph =
+                    LatexCmds.alephsym =
+                        bindVanillaSymbol('\\aleph ', '&alefsym;', 'alef sym');
+    LatexCmds['\u2203'] =
+        LatexCmds.xist = //LOL
+            LatexCmds.xists =
+                LatexCmds.exist =
+                    LatexCmds.exists =
+                        bindVanillaSymbol('\\exists ', '&exist;', 'there exists at least 1');
+    // forall is in basicSymbols.
+    LatexCmds['\u2204'] =
+        LatexCmds.nexists =
+            LatexCmds.nexist =
+                bindVanillaSymbol('\\nexists ', '&#8708;', 'there is no');
+    LatexCmds['\u2227'] =
+        LatexCmds.and =
+            LatexCmds.land =
+                LatexCmds.wedge =
+                    bindBinaryOperator('\\wedge ', '&and;', 'and');
+    LatexCmds['\u2228'] =
+        LatexCmds.or =
+            LatexCmds.lor =
+                LatexCmds.vee =
+                    bindBinaryOperator('\\vee ', '&or;', 'or');
+    LatexCmds['\u2205'] =
+        LatexCmds.o =
+            LatexCmds.O =
+                LatexCmds.empty =
+                    LatexCmds.emptyset =
+                        LatexCmds.oslash =
+                            LatexCmds.Oslash =
+                                LatexCmds.nothing =
+                                    LatexCmds.varnothing =
+                                        bindBinaryOperator('\\varnothing ', '&empty;', 'nothing');
+    LatexCmds['\u222a'] =
+        LatexCmds.cup =
+            LatexCmds.union =
+                bindBinaryOperator('\\cup ', '&cup;', 'union');
+    LatexCmds['\u2229'] =
+        LatexCmds.cap =
+            LatexCmds.intersect =
+                LatexCmds.intersection =
+                    bindBinaryOperator('\\cap ', '&cap;', 'intersection');
     /*********************************
      * Symbols for Basic Mathematics
      ********************************/
+    var SPACE = '\\ ';
+    var DOT = '.';
     var DigitGroupingChar = /** @class */ (function (_super) {
         __extends(DigitGroupingChar, _super);
         function DigitGroupingChar() {
@@ -6387,12 +6571,8 @@ var __assign = (this && this.__assign) || function () {
         DigitGroupingChar.prototype.fixDigitGrouping = function (opts) {
             if (!opts.enableDigitGrouping)
                 return;
+            // `this` is a digit 0-9, or a SPACE, or a DOT
             var left = this;
-            var right = this;
-            var spacesFound = 0;
-            var dots = [];
-            var SPACE = '\\ ';
-            var DOT = '.';
             // traverse left as far as possible (starting at this char)
             var node = left;
             do {
@@ -6401,38 +6581,88 @@ var __assign = (this && this.__assign) || function () {
                 }
                 else if (node.ctrlSeq === SPACE) {
                     left = node;
-                    spacesFound += 1;
                 }
                 else if (node.ctrlSeq === DOT) {
                     left = node;
-                    dots.push(node);
                 }
                 else {
                     break;
                 }
             } while ((node = left[L]));
+            // Traverse right from the left node.
+            // 'left' is the leftmost 0-9, SPACE, or DOT contiguous from this.
+            DigitGroupingChar.fixDigitGroupingFromLeft(opts, left);
+        };
+        /** Treat `left` as the start of a number. Scan right. */
+        DigitGroupingChar.fixDigitGroupingFromLeft = function (opts, left) {
+            // trim the leading spaces
+            while (left && left.ctrlSeq === SPACE) {
+                if (!left[R])
+                    return;
+                left = left[R];
+            }
+            if (!(left instanceof DigitGroupingChar)) {
+                // Trimmed off all spaces, and left with non-digit, e.g. `\\ a`
+                return;
+            }
+            var node = left;
+            pray('node', node);
+            var right = left;
+            var spacesFound = 0;
+            var dotStreak = 0;
+            var dots = [];
             // traverse right as far as possible (starting to right of this char)
-            while ((node = right[R])) {
+            do {
+                // Invariant: "right" is a DigitGroupingChar
                 if (/^[0-9]$/.test(node.ctrlSeq)) {
                     right = node;
+                    dotStreak = 0;
                 }
                 else if (node.ctrlSeq === SPACE) {
                     right = node;
                     spacesFound += 1;
+                    dotStreak = 0;
                 }
-                else if (node.ctrlSeq === DOT) {
+                else if (node.ctrlSeq === DOT && node instanceof DigitGroupingChar) {
                     right = node;
                     dots.push(node);
+                    if (opts.tripleDotsAreEllipsis) {
+                        dotStreak += 1;
+                    }
                 }
                 else {
                     break;
                 }
+                if (dotStreak == 3) {
+                    break;
+                }
+            } while ((node = right[R]));
+            // Exited the loop for one of two reasons:
+            // 1. `dotStreak == 3`. In this case, trim off the three trailing dots,
+            // and continue again from the character after the ellipsis.
+            if (dotStreak === 3) {
+                var rightDot = dots.pop();
+                var middleDot = dots.pop();
+                var leftDot = dots.pop();
+                if (rightDot[R] instanceof DigitGroupingChar) {
+                    DigitGroupingChar.fixDigitGroupingFromLeft(opts, rightDot[R]);
+                }
+                rightDot.setGroupingClass('mq-ellipsis-end');
+                middleDot.setGroupingClass('mq-ellipsis-middle');
+                leftDot.setGroupingClass('mq-ellipsis-start');
+                right = leftDot[L];
+                if (left === leftDot) {
+                    // e.g. `[-...5]` afer typing the `-`.
+                    // `left` is the left `.`, and `right` is the `-`.
+                    return;
+                }
+                // Else, fallthrough. `left` through `right` (inclusive) is a sequence of
+                // `DigitGroupingChar`s containing no three consecutive dots.
             }
-            // trim the leading spaces
-            while (right !== left && left && left.ctrlSeq === SPACE) {
-                left = left[R];
-                spacesFound -= 1;
-            }
+            // 2. `!right[R]` or `right[R]` is not a digit grouping char.
+            // In this case, `right` is the rightmost digit of the number.
+            // Case 1 (`dotStreak == 3`) falls to this: after `right = right[L][L][L]`,
+            // then `right` is the rightmost digit before the ellipsis.
             // trim the trailing spaces
             while (right !== left && right && right.ctrlSeq === SPACE) {
                 right = right[L];
@@ -6443,22 +6673,23 @@ var __assign = (this && this.__assign) || function () {
                 return;
             var disableFormatting = spacesFound > 0 || dots.length > 1;
             if (disableFormatting) {
-                this.removeGroupingBetween(left, right);
+                DigitGroupingChar.removeGroupingBetween(left, right);
             }
             else if (dots[0]) {
                 if (dots[0] !== left) {
-                    this.addGroupingBetween(dots[0][L], left);
+                    DigitGroupingChar.addGroupingBetween(dots[0][L], left);
                 }
                 if (dots[0] !== right) {
                     // we do not show grouping to the right of a decimal place #yet
-                    this.removeGroupingBetween(dots[0][R], right);
+                    // Remove the grouping for the decimal itself and the digits to the right.
+                    DigitGroupingChar.removeGroupingBetween(dots[0], right);
                 }
             }
             else {
-                this.addGroupingBetween(right, left);
+                DigitGroupingChar.addGroupingBetween(right, left);
             }
         };
-        DigitGroupingChar.prototype.removeGroupingBetween = function (left, right) {
+        DigitGroupingChar.removeGroupingBetween = function (left, right) {
             var node = left;
             do {
                 if (node instanceof DigitGroupingChar) {
@@ -6468,13 +6699,15 @@ var __assign = (this && this.__assign) || function () {
                     break;
             } while ((node = node[R]));
         };
-        DigitGroupingChar.prototype.addGroupingBetween = function (start, end) {
+        // Works right-to-left, so `start` is the rightmost, and `end` is the leftmost.
+        // Assumes all nodes from `end` to `start` are `DigitGroupingChar`s.
+        DigitGroupingChar.addGroupingBetween = function (start, end) {
             var node = start;
             var count = 0;
             var totalDigits = 0;
-            var node = start;
             while (node) {
                 totalDigits += 1;
+                pray('digit', node instanceof DigitGroupingChar);
                 if (node === end)
                     break;
                 node = node[L];
@@ -6618,7 +6851,7 @@ var __assign = (this && this.__assign) || function () {
         return function () { return new Variable(ch, h.entityText(htmlEntity)); };
     }
     Options.prototype.autoCommands = {
-        _maxLength: 0,
+        _maxLength: 0
     };
     baseOptionProcessors.autoCommands = function (cmds) {
         if (typeof cmds !== 'string' || !/^[a-z]+(?: [a-z]+)*$/i.test(cmds)) {
@@ -6671,6 +6904,24 @@ var __assign = (this && this.__assign) || function () {
         dict._maxLength = maxLength;
         return dict;
     };
+    function letterSequenceEndingAtNode(node, maxLength) {
+        var str = '';
+        var i = 0;
+        // Inelegant approach to avoid counting operatorname letters as letters here:
+        // node.ctrlSeq === node.letter holds true unless node is:
+        //  - first or last letter in an operator name like \operatorname{arcsinh}, or
+        //    (`\operatorname{` is prepended to first, and `}` is appended to last)
+        //  - first or last letter in a builtin like `\sin `
+        //    (`\` is prepended to first, and ` ` (space) is appended to last)
+        while (node instanceof Letter &&
+            node.ctrlSeq === node.letter &&
+            i < maxLength) {
+            str = node.letter + str;
+            node = node[L];
+            i += 1;
+        }
+        return str;
+    }
     var Letter = /** @class */ (function (_super) {
         __extends(Letter, _super);
         function Letter(ch) {
@@ -6679,6 +6930,7 @@ var __assign = (this && this.__assign) || function () {
             return _this_1;
         }
         Letter.prototype.checkAutoCmds = function (cursor) {
+            var _c;
             //exit early if in simple subscript and disableAutoSubstitutionInSubscripts is set.
             if (this.shouldIgnoreSubstitutionInSimpleSubscript(cursor.options)) {
                 return;
@@ -6689,20 +6941,12 @@ var __assign = (this && this.__assign) || function () {
             if (maxLength > 0) {
                 // want longest possible autocommand, so join together longest
                 // sequence of letters
-                var str = '';
-                var l = this;
-                var i = 0;
-                // FIXME: l.ctrlSeq === l.letter checks if first or last in an operator name
-                while (l instanceof Letter && l.ctrlSeq === l.letter && i < maxLength) {
-                    str = l.letter + str;
-                    l = l[L];
-                    i += 1;
-                }
+                var str = (_c = letterSequenceEndingAtNode(this, maxLength)) !== null && _c !== void 0 ? _c : '';
                 // check for an autocommand, going thru substrings longest to shortest
                 while (str.length) {
                     if (autoCmds.hasOwnProperty(str)) {
-                        l = this;
-                        for (i = 1; l && i < str.length; i += 1, l = l[L])
+                        var l = this;
+                        for (var i = 1; l && i < str.length; i += 1, l = l[L])
                             ;
                         new Fragment(l, this).remove();
                         cursor[L] = l[L];
@@ -6758,6 +7002,10 @@ var __assign = (this && this.__assign) || function () {
         Letter.prototype.italicize = function (bool) {
             this.isItalic = bool;
             this.isPartOfOperator = !bool;
+            if (bool) {
+                delete this.endsCategory;
+                delete this.endsWord;
+            }
             this.domFrag().toggleClass('mq-operator-name', !bool);
             return this;
         };
@@ -6823,6 +7071,13 @@ var __assign = (this && this.__assign) || function () {
                         first.ctrlSeq =
                             (isBuiltIn ? '\\' : '\\operatorname{') + first.ctrlSeq;
                         last.ctrlSeq += isBuiltIn ? ' ' : '}';
+                        last.endsWord = word;
+                        if (opts.infixOperatorNames[word]) {
+                            last.endsCategory = 'infix';
+                        }
+                        else if (opts.prefixOperatorNames[word]) {
+                            last.endsCategory = 'prefix';
+                        }
                         if (TwoWordOpNames.hasOwnProperty(word)) {
                             var lastL = last[L];
                             var lastLL = lastL && lastL[L];
@@ -6867,7 +7122,7 @@ var __assign = (this && this.__assign) || function () {
                 return true;
             // do not add padding between letter and binary operator. The
             // binary operator already has padding
-            if (node instanceof BinaryOperator)
+            if (node instanceof BinaryOperator && node.isBinaryOperator())
                 return true;
             if (node instanceof SummationNotation)
                 return true;
@@ -6886,7 +7141,7 @@ var __assign = (this && this.__assign) || function () {
     var TwoWordOpNames = { limsup: 1, liminf: 1, projlim: 1, injlim: 1 };
     function defaultAutoOpNames() {
         var AutoOpNames = {
-            _maxLength: 9,
+            _maxLength: 9
         };
         var mostOps = ('arg deg det dim exp gcd hom inf ker lg lim ln log max min sup' +
             ' limsup liminf injlim projlim Pr').split(' ');
@@ -6952,6 +7207,37 @@ var __assign = (this && this.__assign) || function () {
         dict._maxLength = maxLength;
         return dict;
     };
+    Options.prototype.infixOperatorNames = {};
+    baseOptionProcessors.infixOperatorNames = splitWordsIntoDict;
+    Options.prototype.prefixOperatorNames = {};
+    baseOptionProcessors.prefixOperatorNames = splitWordsIntoDict;
+    Options.prototype.disableAutoSubstitutionInSubscripts = false;
+    baseOptionProcessors.disableAutoSubstitutionInSubscripts = function (opt) {
+        if (typeof opt === 'boolean')
+            return opt;
+        if (typeof opt !== 'object' || opt === null || !('except' in opt)) {
+            throw '"' + opt + '" not an object with property "except"';
+        }
+        return { except: splitWordsIntoDict(opt.except) };
+    };
+    function splitWordsIntoDict(cmds) {
+        if (typeof cmds !== 'string') {
+            throw '"' + cmds + '" not a space-delimited list';
+        }
+        if (!/^[a-z]+(?: [a-z]+)*$/i.test(cmds)) {
+            throw '"' + cmds + '" not a space-delimited list of letters';
+        }
+        var list = cmds.split(' ');
+        var dict = {};
+        for (var i = 0; i < list.length; i += 1) {
+            var cmd = list[i];
+            if (cmd.length < 2) {
+                throw '"' + cmd + '" not minimum length of 2';
+            }
+            dict[cmd] = true;
+        }
+        return dict;
+    }
     var OperatorName = /** @class */ (function (_super) {
         __extends(OperatorName, _super);
         function OperatorName(fn) {
@@ -7045,7 +7331,7 @@ var __assign = (this && this.__assign) || function () {
     if (!CharCmds['\\'])
         CharCmds['\\'] = LatexCmds.backslash;
     LatexCmds.$ = bindVanillaSymbol('\\$', '$', 'dollar');
-    LatexCmds.square = bindVanillaSymbol('\\square ', '\u25A1', 'square');
+    LatexCmds['\u25a1'] = LatexCmds.square = bindVanillaSymbol('\\square ', '\u25A1', 'square');
     LatexCmds.mid = bindVanillaSymbol('\\mid ', '\u2223', 'mid');
     // does not use Symbola font
     var NonSymbolaSymbol = /** @class */ (function (_super) {
@@ -7082,85 +7368,110 @@ var __assign = (this && this.__assign) || function () {
     LatexCmds['\u27c2'] = LatexCmds.perp = bindVanillaSymbol('\\perp ', '&#x27C2;', 'perpendicular');
     //the following are all Greek to me, but this helped a lot: http://www.ams.org/STIX/ion/stixsig03.html
     //lowercase Greek letter variables
-    LatexCmds.alpha =
-        LatexCmds.beta =
-            LatexCmds.gamma =
-                LatexCmds.delta =
-                    LatexCmds.zeta =
-                        LatexCmds.eta =
-                            LatexCmds.theta =
-                                LatexCmds.iota =
-                                    LatexCmds.kappa =
-                                        LatexCmds.mu =
-                                            LatexCmds.nu =
-                                                LatexCmds.xi =
-                                                    LatexCmds.rho =
-                                                        LatexCmds.sigma =
-                                                            LatexCmds.tau =
-                                                                LatexCmds.chi =
-                                                                    LatexCmds.psi =
-                                                                        LatexCmds.omega =
-                                                                            function (latex) {
-                                                                                return new Variable('\\' + latex + ' ', h.entityText('&' + latex + ';'));
-                                                                            };
+    function bindLowercaseGreek(latex) {
+        return bindVariable('\\' + latex + ' ', '&' + latex + ';', latex);
+    }
+    LatexCmds['\u03b1'] = LatexCmds.alpha = bindLowercaseGreek('alpha');
+    LatexCmds['\u03b2'] = LatexCmds.beta = bindLowercaseGreek('beta');
+    LatexCmds['\u03b3'] = LatexCmds.gamma = bindLowercaseGreek('gamma');
+    LatexCmds['\u03b4'] = LatexCmds.delta = bindLowercaseGreek('delta');
+    LatexCmds['\u03b6'] = LatexCmds.zeta = bindLowercaseGreek('zeta');
+    LatexCmds['\u03b7'] = LatexCmds.eta = bindLowercaseGreek('eta');
+    LatexCmds['\u03b8'] = LatexCmds.theta = bindLowercaseGreek('theta');
+    LatexCmds['\u03b9'] = LatexCmds.iota = bindLowercaseGreek('iota');
+    LatexCmds['\u03ba'] = LatexCmds.kappa = bindLowercaseGreek('kappa');
+    LatexCmds['\u03bc'] = LatexCmds.mu = bindLowercaseGreek('mu');
+    LatexCmds['\u03bd'] = LatexCmds.nu = bindLowercaseGreek('nu');
+    LatexCmds['\u03be'] = LatexCmds.xi = bindLowercaseGreek('xi');
+    LatexCmds['\u03c1'] = LatexCmds.rho = bindLowercaseGreek('rho');
+    LatexCmds['\u03c3'] = LatexCmds.sigma = bindLowercaseGreek('sigma');
+    LatexCmds['\u03c4'] = LatexCmds.tau = bindLowercaseGreek('tau');
+    LatexCmds['\u03c7'] = LatexCmds.chi = bindLowercaseGreek('chi');
+    LatexCmds['\u03c8'] = LatexCmds.psi = bindLowercaseGreek('psi');
+    LatexCmds['\u03c9'] = LatexCmds.omega = bindLowercaseGreek('omega');
     //why can't anybody FUCKING agree on these
-    LatexCmds.phi = bindVariable('\\phi ', '&#981;', 'phi'); //W3C or Unicode?
-    LatexCmds.phiv = LatexCmds.varphi = bindVariable('\\varphi ', '&phi;', 'phi'); //Elsevier and 9573-13 //AMS and LaTeX
-    LatexCmds.epsilon = bindVariable('\\epsilon ', '&#1013;', 'epsilon'); //W3C or Unicode?
-    LatexCmds.epsiv = LatexCmds.varepsilon = bindVariable(
-    //Elsevier and 9573-13 //AMS and LaTeX
-    '\\varepsilon ', '&epsilon;', 'epsilon');
-    LatexCmds.piv = LatexCmds.varpi = bindVariable('\\varpi ', '&piv;', 'piv'); //W3C/Unicode and Elsevier and 9573-13 //AMS and LaTeX
-    LatexCmds.sigmaf = //W3C/Unicode
-        LatexCmds.sigmav = //Elsevier
-            LatexCmds.varsigma = //LaTeX
-                bindVariable('\\varsigma ', '&sigmaf;', 'sigma');
-    LatexCmds.thetav = //Elsevier and 9573-13
-        LatexCmds.vartheta = //AMS and LaTeX
-            LatexCmds.thetasym = //W3C/Unicode
-                bindVariable('\\vartheta ', '&thetasym;', 'theta');
-    LatexCmds.upsilon = LatexCmds.upsi = bindVariable(
-    //AMS and LaTeX and W3C/Unicode //Elsevier and 9573-13
-    '\\upsilon ', '&upsilon;', 'upsilon');
+    LatexCmds['\u03d5'] = LatexCmds.phi = bindVariable('\\phi ', '&#981;', 'phi'); //W3C or Unicode?
+    LatexCmds['\u03c6'] =
+        LatexCmds.phiv =
+            LatexCmds.varphi =
+                bindVariable('\\varphi ', '&phi;', 'phi'); //Elsevier and 9573-13 //AMS and LaTeX
+    LatexCmds['\u03f5'] = LatexCmds.epsilon = bindVariable('\\epsilon ', '&#1013;', 'epsilon'); //W3C or Unicode?
+    LatexCmds['\u03b5'] =
+        LatexCmds.epsiv =
+            LatexCmds.varepsilon =
+                bindVariable(
+                //Elsevier and 9573-13 //AMS and LaTeX
+                '\\varepsilon ', '&epsilon;', 'epsilon');
+    LatexCmds['\u03d6'] =
+        LatexCmds.piv =
+            LatexCmds.varpi =
+                bindVariable('\\varpi ', '&piv;', 'piv'); //W3C/Unicode and Elsevier and 9573-13 //AMS and LaTeX
+    LatexCmds['\u03c2'] = // Unicode
+        LatexCmds.sigmaf = //W3C/Unicode
+            LatexCmds.sigmav = //Elsevier
+                LatexCmds.varsigma = //LaTeX
+                    bindVariable('\\varsigma ', '&sigmaf;', 'sigma');
+    LatexCmds['\u03d1'] = // Unicode
+        LatexCmds.thetav = //Elsevier and 9573-13
+            LatexCmds.vartheta = //AMS and LaTeX
+                LatexCmds.thetasym = //W3C/Unicode
+                    bindVariable('\\vartheta ', '&thetasym;', 'theta');
+    LatexCmds['\u03c5'] =
+        LatexCmds.upsilon =
+            LatexCmds.upsi =
+                bindVariable(
+                //AMS and LaTeX and W3C/Unicode //Elsevier and 9573-13
+                '\\upsilon ', '&upsilon;', 'upsilon');
     //these aren't even mentioned in the HTML character entity references
-    LatexCmds.gammad = //Elsevier
-        LatexCmds.Gammad = //9573-13 -- WTF, right? I dunno if this was a typo in the reference (see above)
-            LatexCmds.digamma = //LaTeX
-                bindVariable('\\digamma ', '&#989;', 'gamma');
-    LatexCmds.kappav = LatexCmds.varkappa = bindVariable(
-    //Elsevier //AMS and LaTeX
-    '\\varkappa ', '&#1008;', 'kappa');
-    LatexCmds.rhov = LatexCmds.varrho = bindVariable('\\varrho ', '&#1009;', 'rho'); //Elsevier and 9573-13 //AMS and LaTeX
+    LatexCmds['\u03dc'] =
+        LatexCmds.gammad = //Elsevier
+            LatexCmds.Gammad = //9573-13 -- WTF, right? I dunno if this was a typo in the reference (see above)
+                LatexCmds.digamma = //LaTeX
+                    bindVariable('\\digamma ', '&#989;', 'gamma');
+    LatexCmds['\u03f0'] =
+        LatexCmds.kappav =
+            LatexCmds.varkappa =
+                bindVariable(
+                //Elsevier //AMS and LaTeX
+                '\\varkappa ', '&#1008;', 'kappa');
+    LatexCmds['\u03f1'] =
+        LatexCmds.rhov =
+            LatexCmds.varrho =
+                bindVariable('\\varrho ', '&#1009;', 'rho'); //Elsevier and 9573-13 //AMS and LaTeX
     //Greek constants, look best in non-italicized Times New Roman
     LatexCmds.pi = LatexCmds['\u03c0'] = function () {
         return new NonSymbolaSymbol('\\pi ', h.entityText('&pi;'), 'pi');
     };
-    LatexCmds.lambda = function () {
+    LatexCmds['\u03bb'] = LatexCmds.lambda = function () {
         return new NonSymbolaSymbol('\\lambda ', h.entityText('&lambda;'), 'lambda');
     };
     //uppercase greek letters
-    LatexCmds.Upsilon = //LaTeX
-        LatexCmds.Upsi = //Elsevier and 9573-13
-            LatexCmds.upsih = //W3C/Unicode "upsilon with hook"
-                LatexCmds.Upsih = //'cos it makes sense to me
-                    function () {
-                        return new MQSymbol('\\Upsilon ', h('var', { style: 'font-family: serif' }, [h.entityText('&upsih;')]), 'capital upsilon');
-                    }; //Symbola's 'upsilon with a hook' is a capital Y without hooks :(
+    LatexCmds['\u03a5'] =
+        LatexCmds.Upsilon = //LaTeX
+            LatexCmds.Upsi = //Elsevier and 9573-13
+                LatexCmds.upsih = //W3C/Unicode "upsilon with hook"
+                    LatexCmds.Upsih = //'cos it makes sense to me
+                        function () {
+                            return new MQSymbol('\\Upsilon ', h('var', { style: 'font-family: serif' }, [h.entityText('&upsih;')]), 'capital upsilon');
+                        }; //Symbola's 'upsilon with a hook' is a capital Y without hooks :(
     //other symbols with the same LaTeX command and HTML character entity reference
-    LatexCmds.Gamma =
-        LatexCmds.Delta =
-            LatexCmds.Theta =
-                LatexCmds.Lambda =
-                    LatexCmds.Xi =
-                        LatexCmds.Pi =
-                            LatexCmds.Sigma =
-                                LatexCmds.Phi =
-                                    LatexCmds.Psi =
-                                        LatexCmds.Omega =
-                                            LatexCmds.forall =
-                                                function (latex) {
-                                                    return new VanillaSymbol('\\' + latex + ' ', h.entityText('&' + latex + ';'));
-                                                };
+    function bindUppercaseGreek(latex) {
+        return function () {
+            return new VanillaSymbol('\\' + latex + ' ', h.entityText('&' + latex + ';'));
+        };
+    }
+    LatexCmds['\u0393'] = LatexCmds.Gamma = bindUppercaseGreek('Gamma');
+    LatexCmds['\u0394'] = LatexCmds.Delta = bindUppercaseGreek('Delta');
+    LatexCmds['\u0398'] = LatexCmds.Theta = bindUppercaseGreek('Theta');
+    LatexCmds['\u039b'] = LatexCmds.Lambda = bindUppercaseGreek('Lambda');
+    LatexCmds['\u039e'] = LatexCmds.Xi = bindUppercaseGreek('Xi');
+    LatexCmds['\u03a0'] = LatexCmds.Pi = bindUppercaseGreek('Pi');
+    LatexCmds['\u03a3'] = LatexCmds.Sigma = bindUppercaseGreek('Sigma');
+    LatexCmds['\u03a6'] = LatexCmds.Phi = bindUppercaseGreek('Phi');
+    LatexCmds['\u03a8'] = LatexCmds.Psi = bindUppercaseGreek('Psi');
+    LatexCmds['\u03a9'] = LatexCmds.Omega = bindUppercaseGreek('Omega');
+    LatexCmds['\u2200'] = LatexCmds.forall = bindUppercaseGreek('forall');
+    // "exists" is in advancedSymbols
     // symbols that aren't a single MathCommand, but are instead a whole
     // Fragment. Creates the Fragment from a LaTeX string
     var LatexFragment = /** @class */ (function (_super) {
@@ -7260,18 +7571,29 @@ var __assign = (this && this.__assign) || function () {
     // to make that change because I'm fairly confident I'd break something
     // around handling valid latex as latex rather than treating it as keystrokes.
     LatexCmds['\u221a'] = function () { return new LatexFragment('\\sqrt{}'); };
+    /**
+     * Return true if:
+     * - node is BinaryOperator (+, \u00d7, -, etc), including PlusMinus which could
+     *   siometimes be interpreted as unary, or
+     * - node ends an infix word like "for" specified in `infixOperatorNames`
+     */
+    function nodeEndsBinaryOperator(node) {
+        return (node instanceof BinaryOperator ||
+            (node instanceof Letter && node.endsCategory == 'infix'));
+    }
     // Binary operator determination is used in several contexts for PlusMinus nodes and their descendants.
     // For instance, we set the item's class name based on this factor, and also assign different mathspeak values (plus vs positive, negative vs minus).
-    function isBinaryOperator(node) {
+    function plusMinusIsBinaryOperator(node) {
         if (!node)
             return false;
         var nodeL = node[L];
         if (nodeL) {
-            // If the left sibling is a binary operator or a separator (comma, semicolon, colon, space)
-            // or an open bracket (open parenthesis, open square bracket)
+            // If the left sibling is a binary operator or a separator (comma, semicolon, colon, space),
             // consider the operator to be unary
-            if (nodeL instanceof BinaryOperator ||
-                /^(\\ )|[,;:\(\[]$/.test(nodeL.ctrlSeq)) {
+            if (nodeEndsBinaryOperator(nodeL) ||
+                (nodeL instanceof Letter && nodeL.endsCategory == 'prefix') ||
+                (!(nodeL instanceof Bracket) && // exclude Bracket because ctrlSeq gives "(" even if `node` is after the ")"
+                    /^(\\ )|[,;:\(\[]$/.test(nodeL.ctrlSeq))) {
                 return false;
             }
         }
@@ -7281,9 +7603,12 @@ var __assign = (this && this.__assign) || function () {
             //if we are in a style block at the leftmost edge, determine unary/binary based on
             //the style block
             //this allows style blocks to be transparent for unary/binary purposes
-            return isBinaryOperator(node.parent.parent);
+            return plusMinusIsBinaryOperator(node.parent.parent);
         }
         else {
+            // This is reached when `node` is the first element in the MathBlock, for
+            // example `node` is after an open bracket. E.g. `node` is "-" inside "(-5)".
+            // Then `nodeL` is undefined since `node` is the start of the block.
             return false;
         }
         return true;
@@ -7293,6 +7618,9 @@ var __assign = (this && this.__assign) || function () {
         function class_7(ch, html, mathspeak) {
             return _super.call(this, ch, html, undefined, mathspeak, true) || this;
         }
+        class_7.prototype.isBinaryOperator = function () {
+            return plusMinusIsBinaryOperator(this);
+        };
         class_7.prototype.contactWeld = function (cursor, dir) {
             this.sharedSiblingMethod(cursor.options, dir);
         };
@@ -7305,9 +7633,10 @@ var __assign = (this && this.__assign) || function () {
         class_7.prototype.sharedSiblingMethod = function (_opts, dir) {
             if (dir === R)
                 return; // ignore if sibling only changed on the right
-            this.domFrag().oneElement().className = isBinaryOperator(this) && this.ctrlSeq !== '+'
-                ? 'mq-binary-operator'
-                : '';
+            this.domFrag().oneElement().className =
+                plusMinusIsBinaryOperator(this) && this.ctrlSeq !== '+'
+                    ? 'mq-binary-operator'
+                    : '';
             return this;
         };
         return class_7;
@@ -7318,7 +7647,7 @@ var __assign = (this && this.__assign) || function () {
             return _super.call(this, '+', h.text('+')) || this;
         }
         class_8.prototype.mathspeak = function () {
-            return isBinaryOperator(this) ? 'plus' : 'positive';
+            return plusMinusIsBinaryOperator(this) ? 'plus' : 'positive';
         };
         return class_8;
     }(PlusMinus));
@@ -7329,7 +7658,7 @@ var __assign = (this && this.__assign) || function () {
             return _super.call(this, '-', h.entityText('&minus;')) || this;
         }
         MinusNode.prototype.mathspeak = function () {
-            return isBinaryOperator(this) ? 'minus' : 'negative';
+            return plusMinusIsBinaryOperator(this) ? 'minus' : 'negative';
         };
         return MinusNode;
     }(PlusMinus));
@@ -7410,7 +7739,7 @@ var __assign = (this && this.__assign) || function () {
         ctrlSeqStrict: '<',
         htmlEntityStrict: '&lt;',
         textStrict: '<',
-        mathspeakStrict: 'less than',
+        mathspeakStrict: 'less than'
     };
     var greater = {
         ctrlSeq: '\\ge ',
@@ -7420,7 +7749,7 @@ var __assign = (this && this.__assign) || function () {
         ctrlSeqStrict: '>',
         htmlEntityStrict: '&gt;',
         textStrict: '>',
-        mathspeakStrict: 'greater than',
+        mathspeakStrict: 'greater than'
     };
     var Greater = /** @class */ (function (_super) {
         __extends(Greater, _super);
@@ -7454,10 +7783,11 @@ var __assign = (this && this.__assign) || function () {
         LatexCmds.ge =
             LatexCmds.geq =
                 function () { return new Inequality(greater, false); };
-    LatexCmds.infty =
-        LatexCmds.infin =
-            LatexCmds.infinity =
-                bindVanillaSymbol('\\infty ', '&infin;', 'infinity');
+    LatexCmds['\u221e'] =
+        LatexCmds.infty =
+            LatexCmds.infin =
+                LatexCmds.infinity =
+                    bindVanillaSymbol('\\infty ', '&infin;', 'infinity');
     LatexCmds['\u2260'] =
         LatexCmds.ne =
             LatexCmds.neq =
@@ -7551,6 +7881,21 @@ var __assign = (this && this.__assign) || function () {
         }
         return interpretAsSim;
     };
+    LatexCmds['\u25ef'] = LatexCmds.bigcirc = bindVanillaSymbol('\\bigcirc ', '&#9711;', 'circle');
+    LatexCmds['\u2220'] =
+        LatexCmds.ang =
+            LatexCmds.angle =
+                bindVanillaSymbol('\\angle ', '&ang;', 'angle');
+    // Using degree instead of ^\circ for compatibility
+    // with a pasted in unicode degree symbol
+    LatexCmds['\u00b0'] = LatexCmds.degree = bindVanillaSymbol('\\degree ', '&deg;', 'degrees');
+    LatexCmds['\u25b3'] = LatexCmds.triangle = bindVanillaSymbol('\\triangle ', '&#9651;', 'triangle');
+    LatexCmds['\u2245'] = LatexCmds.cong = bindBinaryOperator('\\cong ', '&cong;', 'cong', 'congruent');
+    LatexCmds['\u2221'] = LatexCmds.measuredangle = bindVanillaSymbol('\\measuredangle ', '&#8737;', 'measured angle');
+    //not real LaTex command see https://github.com/mathquill/mathquill/pull/552 for more details
+    LatexCmds['\u25b1'] = LatexCmds.parallelogram = bindVanillaSymbol('\\parallelogram ', '&#9649;', 'parallelogram');
+    LatexCmds['\u2247'] = LatexCmds.ncong = bindBinaryOperator('\\ncong ', '&ncong;', 'ncong', 'not congruent');
+    LatexCmds['\u2241'] = LatexCmds.nsim = bindBinaryOperator('\\nsim ', '&nsim;', 'nsim', 'not similar');
     /***************************
      * Commands and Operators.
      **************************/
@@ -7560,108 +7905,115 @@ var __assign = (this && this.__assign) || function () {
             html: function () {
                 return h('svg', { preserveAspectRatio: 'none', viewBox: '0 0 32 54' }, [
                     h('path', {
-                        d: 'M0 33 L7 27 L12.5 47 L13 47 L30 0 L32 0 L13 54 L11 54 L4.5 31 L0 33',
-                    }),
+                        d: 'M0 33 L7 27 L12.5 47 L13 47 L30 0 L32 0 L13 54 L11 54 L4.5 31 L0 33'
+                    })
                 ]);
-            },
+            }
         },
         '|': {
             width: '.4em',
             html: function () {
                 return h('svg', { preserveAspectRatio: 'none', viewBox: '0 0 10 54' }, [
-                    h('path', { d: 'M4.4 0 L4.4 54 L5.6 54 L5.6 0' }),
+                    h('path', { d: 'M4.4 0 L4.4 54 L5.6 54 L5.6 0' })
                 ]);
-            },
+            }
         },
         '[': {
             width: '.55em',
             html: function () {
                 return h('svg', { preserveAspectRatio: 'none', viewBox: '0 0 11 24' }, [
-                    h('path', { d: 'M8 0 L3 0 L3 24 L8 24 L8 23 L4 23 L4 1 L8 1' }),
+                    h('path', { d: 'M8 0 L3 0 L3 24 L8 24 L8 23 L4 23 L4 1 L8 1' })
                 ]);
-            },
+            }
         },
         ']': {
             width: '.55em',
             html: function () {
                 return h('svg', { preserveAspectRatio: 'none', viewBox: '0 0 11 24' }, [
-                    h('path', { d: 'M3 0 L8 0 L8 24 L3 24 L3 23 L7 23 L7 1 L3 1' }),
+                    h('path', { d: 'M3 0 L8 0 L8 24 L3 24 L3 23 L7 23 L7 1 L3 1' })
                 ]);
-            },
+            }
         },
         '(': {
             width: '.55em',
             html: function () {
                 return h('svg', { preserveAspectRatio: 'none', viewBox: '3 0 106 186' }, [
                     h('path', {
-                        d: 'M85 0 A61 101 0 0 0 85 186 L75 186 A75 101 0 0 1 75 0',
-                    }),
+                        d: 'M85 0 A61 101 0 0 0 85 186 L75 186 A75 101 0 0 1 75 0'
+                    })
                 ]);
-            },
+            }
         },
         ')': {
             width: '.55em',
             html: function () {
                 return h('svg', { preserveAspectRatio: 'none', viewBox: '3 0 106 186' }, [
                     h('path', {
-                        d: 'M24 0 A61 101 0 0 1 24 186 L34 186 A75 101 0 0 0 34 0',
-                    }),
+                        d: 'M24 0 A61 101 0 0 1 24 186 L34 186 A75 101 0 0 0 34 0'
+                    })
                 ]);
-            },
+            }
         },
         '{': {
             width: '.7em',
             html: function () {
                 return h('svg', { preserveAspectRatio: 'none', viewBox: '10 0 210 350' }, [
                     h('path', {
-                        d: 'M170 0 L170 6 A47 52 0 0 0 123 60 L123 127 A35 48 0 0 1 88 175 A35 48 0 0 1 123 223 L123 290 A47 52 0 0 0 170 344 L170 350 L160 350 A58 49 0 0 1 102 301 L103 220 A45 40 0 0 0 58 180 L58 170 A45 40 0 0 0 103 130 L103 49 A58 49 0 0 1 161 0',
-                    }),
+                        d: 'M170 0 L170 6 A47 52 0 0 0 123 60 L123 127 A35 48 0 0 1 88 175 A35 48 0 0 1 123 223 L123 290 A47 52 0 0 0 170 344 L170 350 L160 350 A58 49 0 0 1 102 301 L103 220 A45 40 0 0 0 58 180 L58 170 A45 40 0 0 0 103 130 L103 49 A58 49 0 0 1 161 0'
+                    })
                 ]);
-            },
+            }
         },
         '}': {
             width: '.7em',
             html: function () {
                 return h('svg', { preserveAspectRatio: 'none', viewBox: '10 0 210 350' }, [
                     h('path', {
-                        d: 'M60 0 L60 6 A47 52 0 0 1 107 60 L107 127 A35 48 0 0 0 142 175 A35 48 0 0 0 107 223 L107 290 A47 52 0 0 1 60 344 L60 350 L70 350 A58 49 0 0 0 128 301 L127 220 A45 40 0 0 1 172 180 L172 170 A45 40 0 0 1 127 130 L127 49 A58 49 0 0 0 70 0',
-                    }),
+                        d: 'M60 0 L60 6 A47 52 0 0 1 107 60 L107 127 A35 48 0 0 0 142 175 A35 48 0 0 0 107 223 L107 290 A47 52 0 0 1 60 344 L60 350 L70 350 A58 49 0 0 0 128 301 L127 220 A45 40 0 0 1 172 180 L172 170 A45 40 0 0 1 127 130 L127 49 A58 49 0 0 0 70 0'
+                    })
                 ]);
-            },
+            }
         },
         '&#8741;': {
             width: '.7em',
             html: function () {
                 return h('svg', { preserveAspectRatio: 'none', viewBox: '0 0 10 54' }, [
-                    h('path', { d: 'M3.2 0 L3.2 54 L4 54 L4 0 M6.8 0 L6.8 54 L6 54 L6 0' }),
+                    h('path', { d: 'M3.2 0 L3.2 54 L4 54 L4 0 M6.8 0 L6.8 54 L6 54 L6 0' })
                 ]);
-            },
+            }
         },
         '&lang;': {
             width: '.55em',
             html: function () {
                 return h('svg', { preserveAspectRatio: 'none', viewBox: '0 0 10 54' }, [
-                    h('path', { d: 'M6.8 0 L3.2 27 L6.8 54 L7.8 54 L4.2 27 L7.8 0' }),
+                    h('path', { d: 'M6.8 0 L3.2 27 L6.8 54 L7.8 54 L4.2 27 L7.8 0' })
                 ]);
-            },
+            }
         },
         '&rang;': {
             width: '.55em',
             html: function () {
                 return h('svg', { preserveAspectRatio: 'none', viewBox: '0 0 10 54' }, [
-                    h('path', { d: 'M3.2 0 L6.8 27 L3.2 54 L2.2 54 L5.8 27 L2.2 0' }),
+                    h('path', { d: 'M3.2 0 L6.8 27 L3.2 54 L2.2 54 L5.8 27 L2.2 0' })
                 ]);
-            },
-        },
+            }
+        }
     };
+    var ArrowText = '\u27A4';
     var Style = /** @class */ (function (_super) {
         __extends(Style, _super);
         function Style(ctrlSeq, tagName, attrs, ariaLabel, opts) {
-            var _this_1 = _super.call(this, ctrlSeq, new DOMView(1, function (blocks) { return h.block(tagName, attrs, blocks[0]); })) || this;
+            var _this_1 = _super.call(this, ctrlSeq, new DOMView(1, function (blocks) {
+                var _c, _d;
+                return h.block(tagName, attrs, blocks[0], {
+                    beforeChild: (_c = opts === null || opts === void 0 ? void 0 : opts.beforeChild) === null || _c === void 0 ? void 0 : _c.call(opts),
+                    afterChild: (_d = opts === null || opts === void 0 ? void 0 : opts.afterChild) === null || _d === void 0 ? void 0 : _d.call(opts)
+                });
+            })) || this;
             _this_1.ariaLabel = ariaLabel || ctrlSeq.replace(/^\\/, '');
             _this_1.mathspeakTemplate = [
                 'Start' + _this_1.ariaLabel + ',',
-                'End' + _this_1.ariaLabel,
+                'End' + _this_1.ariaLabel
             ];
             // In most cases, mathspeak should announce the start and end of style blocks.
             // There is one exception currently (mathrm).
@@ -7683,7 +8035,7 @@ var __assign = (this && this.__assign) || function () {
         __extends(mathrm, _super);
         function mathrm() {
             return _super.call(this, '\\mathrm', 'span', { class: 'mq-roman mq-font' }, 'Roman Font', {
-                shouldNotSpeakDelimiters: true,
+                shouldNotSpeakDelimiters: true
             }) || this;
         }
         mathrm.prototype.isTextBlock = function () {
@@ -7711,13 +8063,28 @@ var __assign = (this && this.__assign) || function () {
         return new Style('\\overline', 'span', { class: 'mq-non-leaf mq-overline' }, 'Overline');
     };
     LatexCmds.overrightarrow = function () {
-        return new Style('\\overrightarrow', 'span', { class: 'mq-non-leaf mq-overarrow mq-arrow-right' }, 'Over Right Arrow');
+        return new Style('\\overrightarrow', 'span', { class: 'mq-non-leaf mq-overarrow' }, 'Over Right Arrow', {
+            afterChild: function () {
+                return h('span', { class: 'mq-arrow-right-content' }, [h.text(ArrowText)]);
+            }
+        });
     };
     LatexCmds.overleftarrow = function () {
-        return new Style('\\overleftarrow', 'span', { class: 'mq-non-leaf mq-overarrow mq-arrow-left' }, 'Over Left Arrow');
+        return new Style('\\overleftarrow', 'span', { class: 'mq-non-leaf mq-overarrow' }, 'Over Left Arrow', {
+            beforeChild: function () {
+                return h('span', { class: 'mq-arrow-left-content' }, [h.text(ArrowText)]);
+            }
+        });
     };
     LatexCmds.overleftrightarrow = function () {
-        return new Style('\\overleftrightarrow ', 'span', { class: 'mq-non-leaf mq-overarrow mq-arrow-leftright' }, 'Over Left and Right Arrow');
+        return new Style('\\overleftrightarrow ', 'span', { class: 'mq-non-leaf mq-overarrow' }, 'Over Left and Right Arrow', {
+            beforeChild: function () {
+                return h('span', { class: 'mq-arrow-left-content' }, [h.text(ArrowText)]);
+            },
+            afterChild: function () {
+                return h('span', { class: 'mq-arrow-right-content' }, [h.text(ArrowText)]);
+            }
+        });
     };
     LatexCmds.overarc = function () {
         return new Style('\\overarc', 'span', { class: 'mq-non-leaf mq-overarc' }, 'Over Arc');
@@ -7727,8 +8094,8 @@ var __assign = (this && this.__assign) || function () {
             return h('span', { class: 'mq-non-leaf' }, [
                 h('span', { class: 'mq-dot-recurring-inner' }, [
                     h('span', { class: 'mq-dot-recurring' }, [h.text(U_DOT_ABOVE)]),
-                    h.block('span', { class: 'mq-empty-box' }, blocks[0]),
-                ]),
+                    h.block('span', { class: 'mq-empty-box' }, blocks[0])
+                ])
             ]);
         }));
     };
@@ -7752,7 +8119,7 @@ var __assign = (this && this.__assign) || function () {
             this.ariaLabel = color.replace(/^\\/, '');
             this.mathspeakTemplate = [
                 'Start ' + this.ariaLabel + ',',
-                'End ' + this.ariaLabel,
+                'End ' + this.ariaLabel
             ];
         };
         class_9.prototype.latexRecursive = function (ctx) {
@@ -7806,7 +8173,7 @@ var __assign = (this && this.__assign) || function () {
                 _this_1.ariaLabel = cls + ' class';
                 _this_1.mathspeakTemplate = [
                     'Start ' + _this_1.ariaLabel + ',',
-                    'End ' + _this_1.ariaLabel,
+                    'End ' + _this_1.ariaLabel
                 ];
                 return _super.prototype.parser.call(_this_1);
             });
@@ -8032,7 +8399,7 @@ var __assign = (this && this.__assign) || function () {
                     .oneElement());
                 NodeBase.linkElementByBlockNode(block.domFrag().oneElement(), block);
                 this.domFrag().append(domFrag(h('span', { style: 'display:inline-block;width:0' }, [
-                    h.text(U_ZERO_WIDTH_SPACE),
+                    h.text(U_ZERO_WIDTH_SPACE)
                 ])));
             }
             // like 'sub sup'.split(' ').forEach(function(supsub) { ... });
@@ -8087,8 +8454,8 @@ var __assign = (this && this.__assign) || function () {
                 return h('span', { class: 'mq-supsub mq-non-leaf' }, [
                     h.block('span', { class: 'mq-sub' }, blocks[0]),
                     h('span', { style: 'display:inline-block;width:0' }, [
-                        h.text(U_ZERO_WIDTH_SPACE),
-                    ]),
+                        h.text(U_ZERO_WIDTH_SPACE)
+                    ])
                 ]);
             });
             _this_1.textTemplate = ['_'];
@@ -8113,7 +8480,7 @@ var __assign = (this && this.__assign) || function () {
                     _this_1.supsub = 'sup';
                     _this_1.domView = new DOMView(1, function (blocks) {
                         return h('span', { class: 'mq-supsub mq-non-leaf mq-sup-only' }, [
-                            h.block('span', { class: 'mq-sup' }, blocks[0]),
+                            h.block('span', { class: 'mq-sup' }, blocks[0])
                         ]);
                     });
                     _this_1.textTemplate = ['^(', ')'];
@@ -8180,7 +8547,7 @@ var __assign = (this && this.__assign) || function () {
                 return h('span', { class: 'mq-large-operator mq-non-leaf' }, [
                     h('span', { class: 'mq-to' }, [h.block('span', {}, blocks[1])]),
                     h('big', {}, [h.text(symbol)]),
-                    h('span', { class: 'mq-from' }, [h.block('span', {}, blocks[0])]),
+                    h('span', { class: 'mq-from' }, [h.block('span', {}, blocks[0])])
                 ]);
             });
             MQSymbol.prototype.setCtrlSeqHtmlTextAndMathspeak.call(_this_1, ch, domView);
@@ -8282,13 +8649,13 @@ var __assign = (this && this.__assign) || function () {
                             h('big', {}, [h.text(U_INTEGRAL)]),
                             h('span', { class: 'mq-supsub mq-non-leaf' }, [
                                 h('span', { class: 'mq-sup' }, [
-                                    h.block('span', { class: 'mq-sup-inner' }, blocks[1]),
+                                    h.block('span', { class: 'mq-sup-inner' }, blocks[1])
                                 ]),
                                 h.block('span', { class: 'mq-sub' }, blocks[0]),
                                 h('span', { style: 'display:inline-block;width:0' }, [
-                                    h.text(U_ZERO_WIDTH_SPACE),
-                                ]),
-                            ]),
+                                    h.text(U_ZERO_WIDTH_SPACE)
+                                ])
+                            ])
                         ]);
                     });
                     return _this_1;
@@ -8312,8 +8679,8 @@ var __assign = (this && this.__assign) || function () {
                                 h.block('span', { class: 'mq-numerator' }, blocks[0]),
                                 h.block('span', { class: 'mq-denominator' }, blocks[1]),
                                 h('span', { style: 'display:inline-block;width:0' }, [
-                                    h.text(U_ZERO_WIDTH_SPACE),
-                                ]),
+                                    h.text(U_ZERO_WIDTH_SPACE)
+                                ])
                             ]);
                         });
                         _this_1.textTemplate = ['(', ')/(', ')'];
@@ -8330,7 +8697,7 @@ var __assign = (this && this.__assign) || function () {
                             this.mathspeakTemplate = [
                                 'StartNestedFraction,',
                                 'NestedOver',
-                                ', EndNestedFraction',
+                                ', EndNestedFraction'
                             ];
                         }
                         else {
@@ -8427,9 +8794,14 @@ var __assign = (this && this.__assign) || function () {
             class_12.prototype.createLeftOf = function (cursor) {
                 if (!this.replacedFragment) {
                     var leftward = cursor[L];
-                    if (!cursor.options.typingSlashCreatesNewFraction) {
+                    var dontScan = cursor.options.typingSlashCreatesNewFraction &&
+                        this instanceof Fraction;
+                    if (!dontScan) {
+                        // The user is typing "/" or "over" or "choose". Scan left to get content inside it.
                         while (leftward &&
-                            !(leftward instanceof BinaryOperator ||
+                            !(nodeEndsBinaryOperator(leftward) ||
+                                (leftward instanceof DigitGroupingChar &&
+                                    leftward._groupingClass === 'mq-ellipsis-end') ||
                                 leftward instanceof (LatexCmds.text || noop) ||
                                 leftward instanceof SummationNotation ||
                                 leftward.ctrlSeq === '\\ ' ||
@@ -8439,12 +8811,17 @@ var __assign = (this && this.__assign) || function () {
                     }
                     if (leftward instanceof SummationNotation &&
                         leftward[R] instanceof SupSub) {
+                        // The previous step scanned too far. `\sum_1^5` looks like [SummationNotation,SupSub],
+                        // so scan back right
                         leftward = leftward[R];
                         var leftwardR = leftward[R];
                         if (leftwardR instanceof SupSub &&
                             leftwardR.ctrlSeq != leftward.ctrlSeq)
                             leftward = leftward[R];
                     }
+                    // `leftward` is the first node (from-right-to-left) that is broken on, so
+                    // `leftwardR` is the last node (from right-to-left) that should be included in the
+                    // top of the Fraction or Binomial.
                     if (leftward !== cursor[L] && !cursor.isTooDeep(1)) {
                         var leftwardR = leftward[R];
                         var cursorL = cursor[L];
@@ -8494,7 +8871,7 @@ var __assign = (this && this.__assign) || function () {
         Token.prototype.html = function () {
             var out = h('span', {
                 class: 'mq-token mq-ignore-mousedown',
-                'data-mq-token': this.tokenId,
+                'data-mq-token': this.tokenId
             });
             this.setDOM(out);
             NodeBase.linkElementByCmdNode(out, this);
@@ -8543,9 +8920,9 @@ var __assign = (this && this.__assign) || function () {
             _this_1.domView = new DOMView(1, function (blocks) {
                 return h('span', { class: 'mq-non-leaf mq-sqrt-container' }, [
                     h('span', { class: 'mq-scaled mq-sqrt-prefix' }, [
-                        SVG_SYMBOLS.sqrt.html(),
+                        SVG_SYMBOLS.sqrt.html()
                     ]),
-                    h.block('span', { class: 'mq-non-leaf mq-sqrt-stem' }, blocks[0]),
+                    h.block('span', { class: 'mq-non-leaf mq-sqrt-stem' }, blocks[0])
                 ]);
             });
             _this_1.textTemplate = ['sqrt(', ')'];
@@ -8566,6 +8943,16 @@ var __assign = (this && this.__assign) || function () {
             })
                 .or(_super.prototype.parser.call(this));
         };
+        SquareRoot.prototype.deleteTowards = function (dir, cursor) {
+            if (!this.isEmpty() && dir === 1) {
+                this.moveTowards(R, cursor);
+                cursor.parent.deleteOutOf(L, cursor);
+                return;
+            }
+            // Empty sqrt: delete the sqrt.
+            // Delete-left ("Backspace") moves into non-empty sqrts.
+            _super.prototype.deleteTowards.call(this, dir, cursor);
+        };
         return SquareRoot;
     }(MathCommand));
     LatexCmds.sqrt = SquareRoot;
@@ -8577,7 +8964,7 @@ var __assign = (this && this.__assign) || function () {
             _this_1.domView = new DOMView(1, function (blocks) {
                 return h('span', { class: 'mq-non-leaf' }, [
                     h('span', { class: 'mq-hat-prefix' }, [h.text('^')]),
-                    h.block('span', { class: 'mq-hat-stem' }, blocks[0]),
+                    h.block('span', { class: 'mq-hat-stem' }, blocks[0])
                 ]);
             });
             _this_1.textTemplate = ['hat(', ')'];
@@ -8594,10 +8981,10 @@ var __assign = (this && this.__assign) || function () {
                     h.block('sup', { class: 'mq-nthroot mq-non-leaf' }, blocks[0]),
                     h('span', { class: 'mq-scaled mq-sqrt-container' }, [
                         h('span', { class: 'mq-sqrt-prefix mq-scaled' }, [
-                            SVG_SYMBOLS.sqrt.html(),
+                            SVG_SYMBOLS.sqrt.html()
                         ]),
-                        h.block('span', { class: 'mq-sqrt-stem mq-non-leaf' }, blocks[1]),
-                    ]),
+                        h.block('span', { class: 'mq-sqrt-stem mq-non-leaf' }, blocks[1])
+                    ])
                 ]);
             });
             _this_1.textTemplate = ['sqrt[', '](', ')'];
@@ -8629,6 +9016,9 @@ var __assign = (this && this.__assign) || function () {
                     ', End Root');
             }
         };
+        NthRoot.prototype.deleteTowards = function (dir, cursor) {
+            MathCommand.prototype.deleteTowards.call(this, dir, cursor);
+        };
         return NthRoot;
     }(SquareRoot));
     LatexCmds.nthroot = NthRoot;
@@ -8647,15 +9037,13 @@ var __assign = (this && this.__assign) || function () {
     var DiacriticAbove = /** @class */ (function (_super) {
         __extends(DiacriticAbove, _super);
         function DiacriticAbove(ctrlSeq, html, textTemplate) {
-            var _this_1 = this;
             var domView = new DOMView(1, function (blocks) {
                 return h('span', { class: 'mq-non-leaf' }, [
                     h('span', { class: 'mq-diacritic-above' }, [html]),
-                    h.block('span', { class: 'mq-diacritic-stem' }, blocks[0]),
+                    h.block('span', { class: 'mq-diacritic-stem' }, blocks[0])
                 ]);
             });
-            _this_1 = _super.call(this, ctrlSeq, domView, textTemplate) || this;
-            return _this_1;
+            return _super.call(this, ctrlSeq, domView, textTemplate) || this;
         }
         return DiacriticAbove;
     }(MathCommand));
@@ -8714,20 +9102,20 @@ var __assign = (this && this.__assign) || function () {
                     h('span', {
                         style: 'width:' + leftSymbol.width,
                         class: 'mq-scaled mq-bracket-l mq-paren' +
-                            (_this_1.side === R ? ' mq-ghost' : ''),
+                            (_this_1.side === R ? ' mq-ghost' : '')
                     }, [leftSymbol.html()]),
                     h.block('span', {
                         style: 'margin-left:' +
                             leftSymbol.width +
                             ';margin-right:' +
                             rightSymbol.width,
-                        class: 'mq-bracket-middle mq-non-leaf',
+                        class: 'mq-bracket-middle mq-non-leaf'
                     }, blocks[0]),
                     h('span', {
                         style: 'width:' + rightSymbol.width,
                         class: 'mq-scaled mq-bracket-r mq-paren' +
-                            (_this_1.side === L ? ' mq-ghost' : ''),
-                    }, [rightSymbol.html()]),
+                            (_this_1.side === L ? ' mq-ghost' : '')
+                    }, [rightSymbol.html()])
                 ]);
             });
             return _super.prototype.html.call(this);
@@ -8761,7 +9149,7 @@ var __assign = (this && this.__assign) || function () {
             else {
                 this.mathspeakTemplate = [
                     'left ' + BRACKET_NAMES[open] + ',',
-                    ', right ' + BRACKET_NAMES[close],
+                    ', right ' + BRACKET_NAMES[close]
                 ];
                 this.ariaLabel =
                     BRACKET_NAMES[open] + ' block';
@@ -8775,7 +9163,9 @@ var __assign = (this && this.__assign) || function () {
                 node.side !== -expectedSide &&
                 (!opts.restrictMismatchedBrackets ||
                     OPP_BRACKS[this.sides[this.side].ch] === node.sides[node.side].ch ||
-                    { '(': ']', '[': ')' }[this.sides[L].ch] === node.sides[R].ch) &&
+                    // if restrictMismatchedBrackets is "none" instead of true, don't allow mismatched range brackets
+                    (opts.restrictMismatchedBrackets !== 'none' &&
+                        { '(': ']', '[': ')' }[this.sides[L].ch] === node.sides[R].ch)) &&
                 node);
         };
         Bracket.prototype.closeOpposing = function (brack) {
@@ -8959,7 +9349,7 @@ var __assign = (this && this.__assign) || function () {
         var data = bracket.sides[side];
         return {
             ch: OPP_BRACKS[data.ch],
-            ctrlSeq: OPP_BRACKS[data.ctrlSeq],
+            ctrlSeq: OPP_BRACKS[data.ctrlSeq]
         };
     }
     var OPP_BRACKS = {
@@ -8977,12 +9367,12 @@ var __assign = (this && this.__assign) || function () {
         '\\rangle ': '\\langle ',
         '|': '|',
         '\\lVert ': '\\rVert ',
-        '\\rVert ': '\\lVert ',
+        '\\rVert ': '\\lVert '
     };
     var BRACKET_NAMES = {
         '&lang;': 'angle-bracket',
         '&rang;': 'angle-bracket',
-        '|': 'pipe',
+        '|': 'pipe'
     };
     function bindCharBracketPair(open, ctrlSeq, name) {
         var ctrlSeq = ctrlSeq || open;
@@ -9074,24 +9464,24 @@ var __assign = (this && this.__assign) || function () {
                 return h('span', { class: 'mq-non-leaf mq-bracket-container' }, [
                     h('span', {
                         style: 'width:' + leftBinomialSymbol.width,
-                        class: 'mq-paren mq-bracket-l mq-scaled',
+                        class: 'mq-paren mq-bracket-l mq-scaled'
                     }, [leftBinomialSymbol.html()]),
                     h('span', {
                         style: 'margin-left:' +
                             leftBinomialSymbol.width +
                             '; margin-right:' +
                             rightBinomialSymbol.width,
-                        class: 'mq-non-leaf mq-bracket-middle',
+                        class: 'mq-non-leaf mq-bracket-middle'
                     }, [
                         h('span', { class: 'mq-array mq-non-leaf' }, [
                             h.block('span', {}, blocks[0]),
-                            h.block('span', {}, blocks[1]),
-                        ]),
+                            h.block('span', {}, blocks[1])
+                        ])
                     ]),
                     h('span', {
                         style: 'width:' + rightBinomialSymbol.width,
-                        class: 'mq-paren mq-bracket-r mq-scaled',
-                    }, [rightBinomialSymbol.html()]),
+                        class: 'mq-paren mq-bracket-r mq-scaled'
+                    }, [rightBinomialSymbol.html()])
                 ]);
             });
             _this_1.textTemplate = ['choose(', ',', ')'];
@@ -9099,6 +9489,15 @@ var __assign = (this && this.__assign) || function () {
             _this_1.ariaLabel = 'binomial';
             return _this_1;
         }
+        Binomial.prototype.finalizeTree = function () {
+            var endsL = this.getEnd(L);
+            var endsR = this.getEnd(R);
+            this.upInto = endsR.upOutOf = endsL;
+            this.downInto = endsL.downOutOf = endsR;
+            // https://math.stackexchange.com/a/1617456 cites Knuth as the source of 'upper index' and 'lower index'
+            endsL.ariaLabel = 'upper index';
+            endsR.ariaLabel = 'lower index';
+        };
         return Binomial;
     }(DelimsNode));
     LatexCmds.binom = LatexCmds.binomial = Binomial;
@@ -9108,7 +9507,7 @@ var __assign = (this && this.__assign) || function () {
             return _super !== null && _super.apply(this, arguments) || this;
         }
         class_14.prototype.createLeftOf = function (cursor) {
-            LiveFraction.prototype.createLeftOf(cursor);
+            LiveFraction.prototype.createLeftOf.call(this, cursor);
         };
         return class_14;
     }(Binomial));
@@ -9119,7 +9518,7 @@ var __assign = (this && this.__assign) || function () {
             _this_1.ctrlSeq = '\\MathQuillMathField';
             _this_1.domView = new DOMView(1, function (blocks) {
                 return h('span', { class: 'mq-editable-field' }, [
-                    h.block('span', { class: 'mq-root-block', 'aria-hidden': 'true' }, blocks[0]),
+                    h.block('span', { class: 'mq-root-block', 'aria-hidden': 'true' }, blocks[0])
                 ]);
             });
             return _this_1;
@@ -9258,8 +9657,8 @@ var __assign = (this && this.__assign) || function () {
                 return h('span', { class: 'mq-latex-command-input-wrapper mq-non-leaf' }, [
                     h('span', { class: 'mq-latex-command-input mq-non-leaf' }, [
                         h.text('\\'),
-                        h.block('span', {}, blocks[0]),
-                    ]),
+                        h.block('span', {}, blocks[0])
+                    ])
                 ]);
             });
             _this_1.textTemplate = ['\\'];
