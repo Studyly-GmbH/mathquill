@@ -3059,12 +3059,13 @@ var __assign = (this && this.__assign) || function () {
                 // The end result is that a spurious "u" is sent followed by the intended character.
                 // Due to how this feature works, it's vital to completely ignore Ctrl-Shift-U no matter how the input event appears to Mathquill as clearing the textarea by mistake breaks the expected input flow.
                 if (keydown &&
-                    (keydown.key === 'Unidentified' ||
-                        (!keydown.altKey &&
-                            keydown.ctrlKey &&
-                            !keydown.metaKey &&
-                            keydown.shiftKey &&
-                            (keydown.key === 'U' || keydown.key === 'Process'))))
+                    !keydown.altKey &&
+                    keydown.ctrlKey &&
+                    !keydown.metaKey &&
+                    keydown.shiftKey &&
+                    (keydown.key === 'U' ||
+                        keydown.key === 'Unidentified' ||
+                        keydown.key === 'Process'))
                     return;
                 if (text.length === 1) {
                     textarea.value = '';
@@ -4941,7 +4942,9 @@ var __assign = (this && this.__assign) || function () {
             if (replacedFragment) {
                 var cmdEndsL = cmd.getEnd(L);
                 replacedFragment.adopt(cmdEndsL, 0, 0);
-                replacedFragment.domFrag().appendTo(cmdEndsL.domFrag().oneElement());
+                replacedFragment
+                    .domFrag()
+                    .appendTo(cmdEndsL.domFrag().oneElement());
                 cmd.placeCursor(cursor);
                 cmd.prepareInsertionAt(cursor);
             }
@@ -5106,7 +5109,8 @@ var __assign = (this && this.__assign) || function () {
                     ' ' +
                     block.mathspeak() +
                     ' ' +
-                    (cmd.mathspeakTemplate[i] + ' ' || 'End' + cmd.ctrlSeq + ' '));
+                    (cmd.mathspeakTemplate[i] + ' ' ||
+                        'End' + cmd.ctrlSeq + ' '));
             });
         };
         return MathCommand;
@@ -5197,9 +5201,9 @@ var __assign = (this && this.__assign) || function () {
                     ? h('span', {}, [
                         h('wbr', {}),
                         h('span', { class: 'mq-binary-operator' }, [
-                            html || h.text(ctrlSeq || ''),
+                            html || h.text(ctrlSeq || '')
                         ]),
-                        h('wbr', {}),
+                        h('wbr', {})
                     ])
                     : h('span', {}, [html || h.text(ctrlSeq || '')]), undefined, mathspeak) || this;
             }
@@ -5208,7 +5212,7 @@ var __assign = (this && this.__assign) || function () {
                     ? h('span', {}, [
                         h('wbr', {}),
                         h('span', { class: 'mq-binary-operator' }, html ? [html] : []),
-                        h('wbr', {}),
+                        h('wbr', {})
                     ])
                     : h('span', { class: 'mq-binary-operator' }, html ? [html] : []), text, mathspeak) || this;
             }
@@ -5261,7 +5265,9 @@ var __assign = (this && this.__assign) || function () {
         MathBlock.prototype.text = function () {
             var endsL = this.getEnd(L);
             var endsR = this.getEnd(R);
-            return endsL === endsR && endsL !== 0 ? endsL.text() : this.join('text');
+            return endsL === endsR && endsL !== 0
+                ? endsL.text()
+                : this.join('text');
         };
         MathBlock.prototype.mathspeak = function () {
             var tempOp = '';
@@ -5327,7 +5333,9 @@ var __assign = (this && this.__assign) || function () {
             if (!updownInto && this[dir]) {
                 var otherDir = -dir;
                 cursor.insAtDirEnd(otherDir, this[dir]);
-                cursor.controller.aria.queueDirEndOf(otherDir).queue(cursor.parent, true);
+                cursor.controller.aria
+                    .queueDirEndOf(otherDir)
+                    .queue(cursor.parent, true);
             }
             else {
                 cursor.insDirOf(dir, this.parent);
@@ -5363,13 +5371,19 @@ var __assign = (this && this.__assign) || function () {
                 return new Letter(ch);
             else if (/^\d$/.test(ch))
                 return new Digit(ch);
-            else if (options && options.typingSlashWritesDivisionSymbol && ch === '/')
+            else if (options &&
+                options.typingSlashWritesDivisionSymbol &&
+                ch === '/')
                 return LatexCmds['\u00f7'](ch);
-            else if (options && options.typingAsteriskWritesTimesSymbol && ch === '*')
+            else if (options &&
+                options.typingAsteriskWritesTimesSymbol &&
+                ch === '*')
                 return LatexCmds['\u00d7'](ch);
             else if (options && options.typingPercentWritesPercentOf && ch === '%')
                 return LatexCmds.percentof(ch);
-            else if ((cons = CharCmds[ch] || LatexCmds[ch])) {
+            else if ((cons =
+                CharCmds[ch] ||
+                    LatexCmds[ch])) {
                 if (cons.constructor) {
                     return new cons(ch);
                 }
@@ -6623,7 +6637,8 @@ var __assign = (this && this.__assign) || function () {
                     spacesFound += 1;
                     dotStreak = 0;
                 }
-                else if (node.ctrlSeq === DOT && node instanceof DigitGroupingChar) {
+                else if (node.ctrlSeq === DOT &&
+                    node instanceof DigitGroupingChar) {
                     right = node;
                     dots.push(node);
                     if (opts.tripleDotsAreEllipsis) {
@@ -6833,7 +6848,9 @@ var __assign = (this && this.__assign) || function () {
             var text = this.ctrlSeq || '';
             if (this.isPartOfOperator ||
                 text.length > 1 ||
-                (this.parent && this.parent.parent && this.parent.parent.isTextBlock())) {
+                (this.parent &&
+                    this.parent.parent &&
+                    this.parent.parent.isTextBlock())) {
                 return _super.prototype.mathspeak.call(this);
             }
             else {
@@ -7101,9 +7118,7 @@ var __assign = (this && this.__assign) || function () {
                                 respace();
                             }
                             else {
-                                last
-                                    .domFrag()
-                                    .toggleClass('mq-last', !(last[R] instanceof Bracket));
+                                last.domFrag().toggleClass('mq-last', !(last[R] instanceof Bracket));
                             }
                         }
                         i += len - 1;
@@ -7452,7 +7467,9 @@ var __assign = (this && this.__assign) || function () {
                 LatexCmds.upsih = //W3C/Unicode "upsilon with hook"
                     LatexCmds.Upsih = //'cos it makes sense to me
                         function () {
-                            return new MQSymbol('\\Upsilon ', h('var', { style: 'font-family: serif' }, [h.entityText('&upsih;')]), 'capital upsilon');
+                            return new MQSymbol('\\Upsilon ', h('var', { style: 'font-family: serif' }, [
+                                h.entityText('&upsih;')
+                            ]), 'capital upsilon');
                         }; //Symbola's 'upsilon with a hook' is a capital Y without hooks :(
     //other symbols with the same LaTeX command and HTML character entity reference
     function bindUppercaseGreek(latex) {
